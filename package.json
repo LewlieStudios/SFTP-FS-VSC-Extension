@@ -1,0 +1,252 @@
+{
+  "name": "sftpfs",
+  "displayName": "sftpfs",
+  "description": "",
+  "version": "0.0.1",
+  "publisher": "wirlie",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onFileSystem:sftp"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sftpfs.addRemote",
+        "title": "SFTP FS: Add Remote..."
+      },
+      {
+        "command": "sftpfs.removeRemote",
+        "title": "SFTP FS: Remove Remote..."
+      },
+      {
+        "command": "sftpfs.connectRemote",
+        "title": "SFTP FS: Connect to Remote..."
+      },
+      {
+        "command": "sftpfs.showInSystemExplorer",
+        "title": "Open in System Explorer"
+      },
+      {
+        "command": "sftpfs.downloadRemoteFolder",
+        "title": "Sync: Download from remote"
+      },
+      {
+        "command": "sftpfs.uploadLocalFolder",
+        "title": "Sync: Upload to remote"
+      },
+      {
+        "command": "sftpfs.refreshRemoteFolder",
+        "title": "Sync: Refresh Folder"
+      },
+      {
+        "command": "sftpfs.downloadRemoteFile",
+        "title": "Sync: Download from remote"
+      },
+      {
+        "command": "sftpfs.uploadLocalFile",
+        "title": "Sync: Upload to remote"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "sftpfs.showInSystemExplorer",
+          "when": "resourceScheme == 'sftp'",
+          "group": "sftp"
+        },
+        {
+          "command": "sftpfs.downloadRemoteFolder",
+          "when": "resourceScheme == 'sftp' && explorerResourceIsFolder && resourcePath =~ /\\/.+\\/.+/i",
+          "group": "sftp"
+        },
+        {
+          "command": "sftpfs.uploadLocalFolder",
+          "when": "resourceScheme == 'sftp' && explorerResourceIsFolder && resourcePath =~ /\\/.+\\/.+/i",
+          "group": "sftp"
+        },
+        {
+          "command": "sftpfs.refreshRemoteFolder",
+          "when": "resourceScheme == 'sftp' && explorerResourceIsFolder && resourcePath =~ /\\/.+\\/.+/i",
+          "group": "sftp"
+        },
+        {
+          "command": "sftpfs.downloadRemoteFile",
+          "when": "resourceScheme == 'sftp' && !explorerResourceIsFolder",
+          "group": "sftp"
+        },
+        {
+          "command": "sftpfs.uploadLocalFile",
+          "when": "resourceScheme == 'sftp' && !explorerResourceIsFolder",
+          "group": "sftp"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "sftpfs.showInSystemExplorer",
+          "when": "false"
+        },
+        {
+          "command": "sftpfs.downloadRemoteFolder",
+          "when": "false"
+        },
+        {
+          "command": "sftpfs.uploadLocalFolder",
+          "when": "false"
+        },
+        {
+          "command": "sftpfs.refreshRemoteFolder",
+          "when": "false"
+        },
+        {
+          "command": "sftpfs.downloadRemoteFile",
+          "when": "false"
+        },
+        {
+          "command": "sftpfs.uploadLocalFile",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SFTP FS Remote",
+      "properties": {
+        "sftpfs.workDirs": {
+          "type": "object",
+          "description": "Used by the extension to manage working directories for remote connections.",
+          "patternProperties": {
+            ".*": {
+              "type": "object",
+              "properties": {
+                "workDir": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "sftpfs.remotes": {
+          "type": "object",
+          "description": "Remote configurations, you may not require to edit this section manually (except if you want to add advanced configurations), you can use the action 'SFTP FS: Add remote...' instead.",
+          "patternProperties": {
+            ".*": {
+              "type": "object",
+              "properties": {
+                "host": {
+                  "type": "string",
+                  "description": "Hostname or IP of SFTP server",
+                  "default": "localhost"
+                },
+                "port": {
+                  "type": "number",
+                  "description": "Port number of the SFTP server",
+                  "default": 22
+                },
+                "forceIPv4": {
+                  "type": "boolean",
+                  "description": "Set this to true fo connect only via IPv4 address",
+                  "default": false
+                },
+                "forceIPv6": {
+                  "type": "boolean",
+                  "description": "Set this to true fo connect only via IPv6 address",
+                  "default": false
+                },
+                "username": {
+                  "type": "string",
+                  "description": "Username for authentication"
+                },
+                "password": {
+                  "type": "string",
+                  "description": "Password for password-based user authentication"
+                },
+                "agent": {
+                  "type": "string",
+                  "description": "Path to ssh-agent's UNIX socket"
+                },
+                "privateKey": {
+                  "type": "string",
+                  "description": "Path of the private key file to use"
+                },
+                "passphrase": {
+                  "type": "string",
+                  "description": "For an encrypted private key"
+                },
+                "readyTimeout": {
+                  "type": "number",
+                  "description": "How long (in ms) to wait for the SSH handshake"
+                },
+                "strictVendor": {
+                  "type": "boolean",
+                  "description": "Performs a strict server vendor check"
+                },
+                "retries": {
+                  "type": "number",
+                  "description": "Number of times to retry connecting"
+                },
+                "retry_factor": {
+                  "type": "number",
+                  "description": "Time factor used to calculate time between retries"
+                },
+                "retry_minTimeout": {
+                  "type": "number",
+                  "description": "Minimum timeout between attempts"
+                },
+                "promiseLimit": {
+                  "type": "number",
+                  "description": "max concurrent promises for downloadDir/uploadDir",
+                  "default": 20
+                },
+                "remotePath": {
+                  "type": "string",
+                  "description": "remote path to read, most of the cases this is configured as /",
+                  "default": "/"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.9",
+    "@types/node": "20.x",
+    "@types/ssh2-sftp-client": "^9.0.4",
+    "@types/vscode": "^1.95.0",
+    "@typescript-eslint/eslint-plugin": "^8.10.0",
+    "@typescript-eslint/parser": "^8.7.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "esbuild": "^0.24.0",
+    "eslint": "^9.13.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "lightning-pool": "^4.10.0",
+    "open": "^10.1.0",
+    "ssh2-sftp-client": "^11.0.0",
+    "upath": "^2.0.1",
+    "uuid": "^11.0.2"
+  }
+}
