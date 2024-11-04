@@ -51,10 +51,19 @@
       {
         "command": "sftpfs.uploadLocalFile",
         "title": "Sync: Upload to remote"
+      },
+      {
+        "command": "sftpfs.removeLocalFile",
+        "title": "Remove local file (Keep remote file)"
       }
     ],
     "menus": {
       "explorer/context": [
+        {
+          "command": "sftpfs.removeLocalFile",
+          "when": "resourceScheme == 'sftp' && resourcePath =~ /\\/.+\\/.+/i",
+          "group": "sftp"
+        },
         {
           "command": "sftpfs.showInSystemExplorer",
           "when": "resourceScheme == 'sftp'",

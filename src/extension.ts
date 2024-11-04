@@ -24,6 +24,15 @@ export async function activate(context: vscode.ExtensionContext) {
 			vscode.workspace.registerFileSystemProvider('sftp', provider, { isCaseSensitive: true })
 	);
 
+	const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
+	item.text = '$(cloud) Ready';
+	item.tooltip = 'SFTP status';
+	item.show();
+
+	fileDecorationManager.setStatusBarItem(item);
+	
+	context.subscriptions.push(item);
+
 	// The command has been defined in the package.json file
 	// Now provide the implementation of the command with registerCommand
 	// The commandId parameter must match the command field in package.json
@@ -294,6 +303,14 @@ export async function activate(context: vscode.ExtensionContext) {
 						}
 					}
 
+					if(!connectionManager.poolExists(remoteName)) {
+						console.log('Creating connection pool!');
+						await connectionManager.createPool({
+							configuration: config,
+							remoteName: remoteName
+						});
+					}
+
 					vscode.window.withProgress(
 						{
 							location: vscode.ProgressLocation.Notification, // Location of the progress indicator
@@ -301,12 +318,10 @@ export async function activate(context: vscode.ExtensionContext) {
 							cancellable: false, // Allow cancellation
 						},
 						async () => {
-							await connectionManager.connect(
-								{
-									remoteName,
-									configuration: config
-								}
-							);
+							const connection = await connectionManager.get(remoteName)?.getPool()?.acquire();
+							if (connection === undefined) {
+								throw Error('SFTP Connection lost.');
+							}
 							// If connection is success, add workspace to project...
 							const removeLeadingSlash = (config.remotePath ?? '/').replace(/^\/+/, '');
 							const virtualFolderUri = vscode.Uri.parse('sftp://' + remoteName + '/' + removeLeadingSlash);
@@ -360,7 +375,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 					// Download if needed
 					logger.appendLineToMessages('Downloading file... ' + realRemotePath.path);
-					await provider.downloadRemoteToLocalIfNeeded(realRemotePath, false);
+					await provider.downloadRemoteFileToLocalIfNeeded(realRemotePath, false);
 
 					const directoryLocalPath = provider.getDirectoryPath(calculatedLocalFile);
 					logger.appendLineToMessages('Opening folder... ' + directoryLocalPath.fsPath);
@@ -369,6 +384,61 @@ export async function activate(context: vscode.ExtensionContext) {
 			} catch(ex: any) {
 				logger.appendErrorToMessages('[show in explorer] Error', ex);
 				vscode.window.showErrorMessage(ex.message);
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('sftpfs.removeLocalFile', async (uri: vscode.Uri) => {
+			try {
+				const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(uri.authority);
+				if (provider === undefined) {
+					logger.appendLineToMessages('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					return;
+				}
+
+				await vscode.window.withProgress({
+					cancellable: true,
+					location: vscode.ProgressLocation.Notification,
+					title: 'Deleting files...'
+				}, async (progress, token) => {
+					await provider.removeLocalFile(uri, token);
+					await closeEditorByUri(uri);
+				});
+				
+				vscode.window.showInformationMessage('Local version of file "' + upath.basename(uri.path) + '" removed.');
+			} catch(ex: any) {
+				logger.appendErrorToMessages('[remote-local-file] Failed due error:', ex);
+				vscode.window.showErrorMessage('Operation failed: ' + ex.message);
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('sftpfs.downloadRemoteFolder', async (uri: vscode.Uri) => {
+			try {
+				const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(uri.authority);
+				if (provider === undefined) {
+					logger.appendLineToMessages('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					return;
+				}
+
+				await vscode.window.withProgress({
+					cancellable: true,
+					location: vscode.ProgressLocation.Notification,
+					title: 'Downloading files...'
+				}, async (progress, token) => {
+					await provider.downloadRemoteFolderToLocal(uri, token);
+				});
+				
+				item.text = '$(cloud) Ready';
+				vscode.window.showInformationMessage('Download for "' + upath.basename(uri.path) + '" completed.');
+			} catch(ex: any) {
+				item.text = '$(cloud) Ready';
+				logger.appendErrorToMessages('[remote-folder-download] Failed due error:', ex);
+				vscode.window.showErrorMessage('Operation failed: ' + ex.message);
 			}
 		})
 	);
@@ -387,4 +457,25 @@ export async function deactivate() {
 		console.log('Disposing file system provider...');
 		v.dispose();
 	});
+}
+
+async function closeEditorByUri(uri: vscode.Uri) {
+	// Search for a tab with the given URI in all tab groups
+	const tabsToRemove:vscode.Tab[] = [];
+	for (const group of vscode.window.tabGroups.all) {
+		for (const tab of group.tabs) {
+			if (tab.input instanceof vscode.TabInputText) {
+				const tabUri = tab.input.uri;
+				if (tabUri.scheme === uri.scheme) {
+					if (tabUri.authority === uri.authority) {
+						if (tabUri.fsPath.startsWith(uri.fsPath)) {
+							// Close the tab
+							tabsToRemove.push(tab);
+						}
+					}
+				}
+			}
+		}
+	}
+	await vscode.window.tabGroups.close(tabsToRemove);
 }

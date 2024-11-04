@@ -1,111 +1,30 @@
 import Client from 'ssh2-sftp-client';
 import { SFTPWrapper } from 'ssh2';
 import { RemoteConfiguration } from './configuration';
-import * as vscode from 'vscode';
-import logger from './logger';
-import { v4 as uuidv4 } from 'uuid';
 import { Pool, PoolFactory } from 'lightning-pool';
+import logger from './logger';
 
 export class ConnectionManager {
-  private openConnections: Map<string, SFTPConnection> = new Map();
+  private openConnections: Map<string, ResourcedPool> = new Map();
 
-  isConnectionOpen(remoteName: string) {
-    return this.openConnections.has(remoteName) && this.openConnections.get(remoteName)!.status !== 'CLOSED';
+  async createPool(openConfiguration: SFTPConnectionOpen) {
+    logger.appendLineToMessages('Created connection pool for remote "' + openConfiguration.remoteName + '".');
+    const pool = new ResourcedPool(openConfiguration);
+    this.openConnections.set(openConfiguration.remoteName, pool);
   }
 
-  getConnection(remoteName: string) {
+  poolExists(remoteName: string) {
+    return this.openConnections.has(remoteName);
+  }
+
+  get(remoteName: string) {
     return this.openConnections.get(remoteName);
-  }
-
-  async getConnectionAndTryRestablish(remoteName: string) {
-    if (!this.isConnectionOpen(remoteName)) {
-      logger.appendLineToMessages('Connection to SFTP ("' + remoteName + '") is not open, trying to connect...');
-      const connection = this.getConnection(remoteName);
-      if (connection === undefined) {
-        logger.appendLineToMessages('Connection to SFTP ("' + remoteName + '") cannot be stablished: no connection present');
-        return undefined;
-      }
-
-      await connectionManager.connect({
-          configuration: connection.configuration,
-          remoteName: connection.remoteName
-      });
-      logger.appendLineToMessages('Connection to SFTP ("' + remoteName + '") success');
-    } else {
-      return this.getConnection(remoteName)!;
-    }
-  }
-
-  async connect(openConfiguration: SFTPConnectionOpen) {
-    const connection: SFTPConnection = {
-      ...openConfiguration,
-      client: new Client("sftp-" + openConfiguration.remoteName),
-      status: 'OPENING',
-      uuid: uuidv4()
-    };
-
-    const old = this.openConnections.get(connection.remoteName);
-    this.updateConnection(connection);
-    if (old !== undefined) {
-      await this.closePreviousIfOpen(old);
-    }
-    await this.startConnection(connection);
   }
 
   async destroyAll() {
     for (const entry of this.openConnections) {
-      const sftpConnection = entry[1];
-      try {
-        logger.appendLineToMessages('Closing SFTP connection for remote "' + sftpConnection.remoteName + '".');
-        await sftpConnection.client!.end();
-        logger.appendLineToMessages('SFTP connection for remote "' + sftpConnection.remoteName + '" ended successfully.');
-      } catch(ex: any) {
-        logger.appendErrorToMessages('Failed to end SFTP connection for remote "' + sftpConnection.remoteName + '".', ex);
-      }
-    }
-  }
-
-  private async closePreviousIfOpen(connection: SFTPConnection) {
-    if (connection.status !== 'CLOSED') {
-      // close connection
-      logger.appendLineToMessages('Closing SFTP connection for remote "' + connection.remoteName + '".');
-      await connection.client.end();
-    }
-  }
-
-  private updateConnection(connection: SFTPConnection) {
-    this.openConnections.set(connection.remoteName, connection);
-  }
-
-  private async startConnection(connection: SFTPConnection) {
-    logger.appendLineToMessages('Starting SFTP connection for remote "' + connection.remoteName + '".');
-    const uuid = connection.uuid;
-    try {
-      const wrapper = await connection.client.connect({ ...connection.configuration });
-      wrapper.on('close', () => {
-        // close
-        const currentConnection = this.getConnection(connection.remoteName);
-        if (currentConnection?.uuid === uuid) {
-          logger.appendLineToMessages('Remote connection "' + connection.remoteName + '" closed, marked connection as CLOSED.');
-          currentConnection.status = 'CLOSED';
-        } else {
-          logger.appendLineToMessages('Remote connection "' + connection.remoteName + '" closed.');
-        }
-      });
-      this.updateConnection({
-        ...connection,
-        status: 'CONNECTED',
-        sftp: wrapper
-      });
-      logger.appendLineToMessages('SFTP connection for remote "' + connection.remoteName + '" stablished.');
-      vscode.window.setStatusBarMessage('Connection success to remote "' + connection.remoteName + '"!', 10000);
-    } catch(ex: any) {;
-      logger.appendErrorToMessages('Failed to stablish connection to remote "' + connection.configuration + '"', ex);
-      vscode.window.showErrorMessage('Failed to stablish connection.');
-      this.updateConnection({
-        ...connection,
-        status: 'CLOSED'
-      });
+      const pool = entry[1];
+      await pool.close();
     }
   }
 }
@@ -115,58 +34,98 @@ export interface SFTPConnectionOpen {
   configuration: RemoteConfiguration
 }
 
-export interface SFTPConnection {
-  remoteName: string,
-  client: Client,
-  sftp?: SFTPWrapper,
-  status: ConnectionStatus,
-  configuration: RemoteConfiguration,
-  uuid: string
-}
-
-export type ConnectionStatus = 'CONNECTED' | 'CLOSED' | 'OPENING'
-
 export class ResourcedPool {
 
-  configuration: SFTPConnectionOpen;
-
-  pool: Pool<SFTPConnection>;
+  private pool: Pool<ConnectionProvider>;
+  remoteName: string;
+  configuration: RemoteConfiguration;
 
   constructor(openConfiguration: SFTPConnectionOpen) {
-    this.configuration = openConfiguration;
+    this.configuration = openConfiguration.configuration;
+    this.remoteName = openConfiguration.remoteName;
 
-    const factory: PoolFactory<SFTPConnection> = {
-      create: async function(opts) {
-          const connection: SFTPConnection = {
-            ...openConfiguration,
-            client: new Client("sftp-" + openConfiguration.remoteName),
-            uuid: uuidv4()
-          };
-          return client;
+    const factory: PoolFactory<ConnectionProvider> = {
+      create: async function() {
+        const client = new Client("sftp-" + openConfiguration.remoteName);
+        logger.appendLineToMessages('Connecting to remote SFTP "' + openConfiguration.remoteName + '"....');
+        const sftp = await client.connect({ ...openConfiguration.configuration });
+        logger.appendLineToMessages('Connection success to remote SFTP "' + openConfiguration.remoteName + '"...');
+        const provider = new ConnectionProvider(client, sftp);
+
+        client.on('close', () => {
+          provider.status = 'CLOSED';
+        });
+        client.on('error', () => {
+          provider.status = 'CLOSED';
+        });
+        client.on('end', () => {
+          provider.status = 'CLOSED';
+        });
+        sftp.on('error', () => {
+          provider.status = 'CLOSED';
+        });
+        sftp.on('CLOSE', () => {
+          provider.status = 'CLOSED';
+        });
+        sftp.on('close', () => {
+          provider.status = 'CLOSED';
+        });
+        sftp.on('end', () => {
+          provider.status = 'CLOSED';
+        });
+
+        return provider;
       },
-      destroy: async function(client) {  
-         await client.close();       
+      destroy: async function(provider) {  
+        logger.appendLineToMessages('Destroying connection for remote SFTP "' + openConfiguration.remoteName + '"...');
+        provider.getSFTP().end();
       },
-      reset: async function(client){   
-         await client.rollback();       
-      },
-      validate: async function(client) {
-         await client.query('select 1');       
-      }    
+      validate: async function(provider) {
+        if (provider.status === 'CLOSED') {
+          throw Error('SFTP already closed.');
+        }
+
+        provider.getSFTP();
+      }
     };
 
-    this.pool = new Pool(this.factory, {  
-      max: 10,    // maximum size of the pool
-      min: 2,     // minimum size of the pool
-      minIdle: 2  // minimum idle resources
+    this.pool = new Pool(factory, {  
+      max: 15,    // maximum size of the pool
+      min: 5,     // minimum size of the pool
+      minIdle: 5,  // minimum idle resources
+      
     });
+  }
+
+  async close() {
+    await this.pool.closeAsync();
+  }
+
+  getPool() {
+    return this.pool;
   }
 
 }
 
+export class ConnectionProvider {
+  private client: Client;
+  private sftp: SFTPWrapper;
+  status: ConnectionStatus = 'OPENING';
 
+  constructor(client: Client, sftp: SFTPWrapper) {
+    this.client = client;
+    this.sftp = sftp;
+  }
 
+  getSFTP() {
+    if (this.status === 'CLOSED') {
+      throw Error('SFTP already closed');
+    }
+    return this.sftp;
+  }
+}
 
+export type ConnectionStatus = 'OPEN' | 'OPENING' | 'CLOSED'
 
 const connectionManager = new ConnectionManager();
 export default connectionManager;

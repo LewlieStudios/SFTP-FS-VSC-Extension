@@ -5,6 +5,7 @@ export class FileDecorationManager {
   readonly onDidChangeFileDecorations: vscode.Event<vscode.Uri | vscode.Uri[] | undefined> = this._onDidChangeFileDecorations.event;
 
   private decorations = new Map<string, CachedDecoration>();
+  private item!: vscode.StatusBarItem;
 
   provideFileDecoration(uri: vscode.Uri): vscode.ProviderResult<vscode.FileDecoration> {
     if (uri.scheme !== 'sftp') {
@@ -18,7 +19,8 @@ export class FileDecorationManager {
       uri,
       {
         'badge': '☁️',
-        'tooltip': 'Remote file not present in local storage'
+        'tooltip': 'Remote file not present in local storage',
+        propagate: false
       }
     );
   }
@@ -28,7 +30,8 @@ export class FileDecorationManager {
       uri,
       {
         'badge': '⬇️',
-        'tooltip': 'Remote file is more recent that the file you have in your local storage, this file needs to be downloaded'
+        'tooltip': 'Remote file is more recent that the file you have in your local storage, this file needs to be downloaded',
+        propagate: false
       }
     );
   }
@@ -38,7 +41,8 @@ export class FileDecorationManager {
       uri,
       {
         'badge': '❓',
-        'tooltip': 'Unknown state of the file'
+        'tooltip': 'Unknown state of the file',
+        propagate: false
       }
     );
   }
@@ -48,7 +52,8 @@ export class FileDecorationManager {
       uri,
       {
         'badge': '✅',
-        'tooltip': 'File saved in your local storage, you have the most recent file (no changes from remote)'
+        'tooltip': 'File saved in your local storage, you have the most recent file (no changes from remote)',
+        propagate: false
       }
     );
   }
@@ -58,7 +63,8 @@ export class FileDecorationManager {
       uri,
       {
         'badge': '📁',
-        'tooltip': 'Folder present in your local storage'
+        'tooltip': 'Folder present in your local storage',
+        propagate: false
       }
     );
   }
@@ -74,6 +80,14 @@ export class FileDecorationManager {
       decoration
     });
     this._onDidChangeFileDecorations.fire(uri);
+  }
+
+	setStatusBarItem(item: vscode.StatusBarItem) {
+		this.item = item;
+	}
+
+  getStatusBarItem() {
+    return this.item;
   }
 }
 
