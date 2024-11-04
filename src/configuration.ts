@@ -75,7 +75,7 @@ class Configuration {
     newStorage[remoteName] = {
       workDir
     };
-    await workspace.getConfiguration('sftpfs').update('workDirs', newStorage, false);
+    await workspace.getConfiguration('sftpfs').update('workDirs', newStorage, true);
   }
 }
 

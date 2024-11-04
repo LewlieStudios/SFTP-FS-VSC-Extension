@@ -194,15 +194,6 @@ export async function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 
-			if (vscode.workspace.workspaceFolders === undefined) {
-				vscode.window.showWarningMessage('Please open a working folder.', 'Open Folder...').then((res) => {
-					if (res === 'Open Folder...') {
-						vscode.commands.executeCommand('vscode.openFolder');
-					}
-				});
-				return;
-			}
-
 			vscode.window.showQuickPick(
 				names,
 				{
@@ -217,26 +208,38 @@ export async function activate(context: vscode.ExtensionContext) {
 						return;
 					}
 
+					// ALready open?
+					if (vscode.workspace.workspaceFolders !== undefined) {
+						for (const workspaceDir of vscode.workspace.workspaceFolders) {
+							if (workspaceDir.uri.scheme === 'sftp' && workspaceDir.uri.authority.toLowerCase() === remoteName.toLowerCase()) {
+								vscode.window.showErrorMessage('This remote is already open.');
+								return;
+							}
+						}
+					}
+
 					var workDir = await configuration.getWorkDirForRemote(remoteName);
 
 					if (workDir === undefined) {
-						const dir = await vscode.window.showInputBox({
-							prompt: 'Enter a directory name to sync with SFTP, this directory will be created inside your current workspace.'
+						await vscode.window.showInformationMessage(
+							'You have not configured a local folder to synchronize files from this remote, please select a folder.',
+							{
+								modal: true
+							}
+						);
+
+						const dir = await vscode.window.showOpenDialog({
+							canSelectFiles: false,
+							canSelectFolders: true,
+							canSelectMany: false,
+							title: 'Select a folder to sync remote files',
+							openLabel: 'Select'
 						});
-						if (dir === undefined || dir.trim().length === 0) {
+						if (dir === undefined || dir.length === 0) {
 							return;
 						}
 
-						const firstWorkspace = vscode.workspace.workspaceFolders!.find((folder) => folder.uri.scheme === 'file');
-						if (firstWorkspace === undefined) {
-							logger.appendLineToMessages('Cannot found a workspace folder of scheme "file".');
-							// TODO: Open folder selector.
-							vscode.window.showWarningMessage('You must add a workspace of type "file".');
-							return;
-						}
-
-						const dirPath = vscode.Uri.joinPath(firstWorkspace.uri, dir);
-
+						const dirPath = dir[0];
 						try {
 							const stats = await vscode.workspace.fs.stat(dirPath);
 							if (stats.type !== vscode.FileType.Directory) {
@@ -264,6 +267,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						}
 						
 						workDir = dirPath.path;
+
 						try {
 							await configuration.setWorkDirForRemote(remoteName, workDir);
 						} catch(ex: any) {
@@ -353,8 +357,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				}
 
 				var statFile = await provider.stat(uri);
-				var realRemotePath = provider.resolveRealPath(uri);
-				const calculatedLocalFile = provider.workDirPath.with({ path: upath.join(provider.workDirPath.fsPath, realRemotePath.path) });
+				const calculatedLocalFile = provider.workDirPath.with({ path: upath.join(provider.workDirPath.fsPath, uri.path) });
 
 				if (statFile.type === vscode.FileType.Directory) {
 					// is a directory, so at least we should make the directory local.
@@ -370,12 +373,12 @@ export async function activate(context: vscode.ExtensionContext) {
 					await provider.openLocalFolderInExplorer(calculatedLocalFile);
 				} else {
 					if (statFile.type === vscode.FileType.SymbolicLink) {
-						realRemotePath = await provider.followSymbolicLinkAndGetRealPath(realRemotePath);
+						uri = await provider.followSymbolicLinkAndGetRealPath(uri);
 					}
 
 					// Download if needed
-					logger.appendLineToMessages('Downloading file... ' + realRemotePath.path);
-					await provider.downloadRemoteFileToLocalIfNeeded(realRemotePath, false, 'passive');
+					logger.appendLineToMessages('Downloading file... ' + uri.path);
+					await provider.downloadRemoteFileToLocalIfNeeded(uri, false, 'passive');
 
 					const directoryLocalPath = provider.getDirectoryPath(calculatedLocalFile);
 					logger.appendLineToMessages('Opening folder... ' + directoryLocalPath.fsPath);
@@ -416,6 +419,34 @@ export async function activate(context: vscode.ExtensionContext) {
 	);
 
 	context.subscriptions.push(
+		vscode.commands.registerCommand('sftpfs.uploadLocalFolder', async (uri: vscode.Uri) => {
+			try {
+				const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(uri.authority);
+				if (provider === undefined) {
+					logger.appendLineToMessages('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					return;
+				}
+
+				await vscode.window.withProgress({
+					cancellable: true,
+					location: vscode.ProgressLocation.Notification,
+					title: 'Uploading files...'
+				}, async (progress, token) => {
+					await provider.uploadRemoteFolderFromLocal(uri, progress, token);
+				});
+				
+				item.text = '$(cloud) Ready';
+				vscode.window.showInformationMessage('Upload for "' + upath.basename(uri.path) + '" completed.');
+			} catch(ex: any) {
+				item.text = '$(cloud) Ready';
+				logger.appendErrorToMessages('[remote-folder-upload] Failed due error:', ex);
+				vscode.window.showErrorMessage('Operation failed: ' + ex.message);
+			}
+		})
+	);
+
+	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.downloadRemoteFolder', async (uri: vscode.Uri) => {
 			try {
 				const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(uri.authority);
@@ -446,7 +477,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.reconnect', async () => {
 			const response = await vscode.window.showInformationMessage(
-				'Are you sure to reconnect? All current operation will be interrupted, files can be corrupted, it is recommended to cancel current running operations before doing a reconnect.',
+				'Are you sure to reconnect? All current operation will be interrupted and files can be corrupted, it is recommended to cancel current running operations before doing a reconnect.',
 				{
 					modal: true
 				},
@@ -460,6 +491,70 @@ export async function activate(context: vscode.ExtensionContext) {
 
 			// Ok, attempt a reconnection.
 			await connectionManager.reconnect();
+
+			if (vscode.workspace.workspaceFolders !== undefined) {
+				for (const workspace of vscode.workspace.workspaceFolders) {
+					if (workspace.uri.scheme === 'sftp') {
+						const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(workspace.uri.authority);
+						if (provider !== undefined) {
+							provider.sendUpdateForRootFolder(workspace.uri);
+						}
+					}
+				}
+			}
+
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('sftpfs.disconnectDirectRemote', async (uri: vscode.Uri) => {
+			try {
+				const remoteName = uri.authority;
+
+				const response = await vscode.window.showInformationMessage(
+					'Are you sure to disconnect? All current operation will be interrupted and files can be corrupted, it is recommended to cancel current running operations before disconnect from server.',
+					{
+						modal: true
+					},
+					'Yes',
+					'No'
+				);
+
+				if (response === 'No' || response === undefined) {
+					return;
+				}
+
+				// Ok, attempt a disconnect.
+				await connectionManager.get(remoteName)?.close();
+
+				// Close workspace
+				if (vscode.workspace.workspaceFolders !== undefined) {
+					var index = -1;
+					var found = false;
+					for (const workspace of vscode.workspace.workspaceFolders) {
+						index++;
+						if (workspace.uri.toString() === uri.toString()) {
+							found = true;
+							break;
+						}
+					}
+					if (found) {
+						const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(uri.authority);
+						if (provider !== undefined) {
+							await provider.dispose();
+						}
+
+						console.info('Closing workspace at ' + index);
+						await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+						setTimeout(() => {
+							vscode.workspace.updateWorkspaceFolders(index, 1);
+						}, 100);
+					}
+				}
+			} catch(ex: any) {
+				logger.appendErrorToMessages('Error closing project:', ex);
+				vscode.window.showErrorMessage(ex.message);
+			}
 		})
 	);
 

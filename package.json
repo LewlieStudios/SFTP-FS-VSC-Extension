@@ -14,7 +14,17 @@
     "onFileSystem:sftp"
   ],
   "main": "./dist/extension.js",
+  "enabledApiProposals": [
+    "contribViewsWelcome"
+  ],
   "contributes": {
+    "viewsWelcome": [
+        {
+            "view": "explorer",
+            "contents": "Work remote with SFTP\n\n\n[$(cloud) - Open SFTP Connection](command:sftpfs.connectRemote)",
+            "when": "!workspaceFolderCount"
+        }
+    ],
     "commands": [
       {
         "command": "sftpfs.addRemote",
@@ -59,33 +69,42 @@
       {
         "command": "sftpfs.reconnect",
         "title": "SFTP: Reconnect"
+      },
+      {
+        "command": "sftpfs.disconnectDirectRemote",
+        "title": "SFTP: Disconnect"
       }
     ],
     "menus": {
       "explorer/context": [
         {
-          "command": "sftpfs.removeLocalFile",
-          "when": "resourceScheme == 'sftp' && resourcePath =~ /\\/.+\\/.+/i",
+          "command": "sftpfs.disconnectDirectRemote",
+          "when": "resourceScheme == 'sftp' && resourcePath == '/'",
           "group": "sftp"
         },
         {
-          "command": "sftpfs.showInSystemExplorer",
+          "command": "sftpfs.removeLocalFile",
           "when": "resourceScheme == 'sftp'",
           "group": "sftp"
         },
         {
+          "command": "sftpfs.showInSystemExplorer",
+          "when": "resourceScheme == 'sftp' && resourcePath != '/'",
+          "group": "sftp"
+        },
+        {
           "command": "sftpfs.downloadRemoteFolder",
-          "when": "resourceScheme == 'sftp' && explorerResourceIsFolder && resourcePath =~ /\\/.+\\/.+/i",
+          "when": "resourceScheme == 'sftp' && explorerResourceIsFolder && resourcePath != '/'",
           "group": "sftp"
         },
         {
           "command": "sftpfs.uploadLocalFolder",
-          "when": "resourceScheme == 'sftp' && explorerResourceIsFolder && resourcePath =~ /\\/.+\\/.+/i",
+          "when": "resourceScheme == 'sftp' && explorerResourceIsFolder && resourcePath != '/'",
           "group": "sftp"
         },
         {
           "command": "sftpfs.refreshRemoteFolder",
-          "when": "resourceScheme == 'sftp' && explorerResourceIsFolder && resourcePath =~ /\\/.+\\/.+/i",
+          "when": "resourceScheme == 'sftp' && explorerResourceIsFolder && resourcePath != '/'",
           "group": "sftp"
         },
         {
@@ -100,11 +119,15 @@
         },
         {
           "command": "sftpfs.reconnect",
-          "when": "resourceScheme == 'sftp'",
+          "when": "resourceScheme == 'sftp' && resourcePath == '/'",
           "group": "sftp"
         }
       ],
       "commandPalette": [
+        {
+          "command": "sftpfs.disconnectDirectRemote",
+          "when": "false"
+        },
         {
           "command": "sftpfs.showInSystemExplorer",
           "when": "false"

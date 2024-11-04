@@ -19,7 +19,11 @@ export class ConnectionManager {
   }
 
   get(remoteName: string) {
-    return this.openConnections.get(remoteName);
+    const pool = this.openConnections.get(remoteName);
+    if (pool !== undefined && pool.terminated) {
+      throw Error('Pool is terminated');
+    }
+    return pool;
   }
 
   async destroyAll() {
@@ -47,6 +51,8 @@ export class ResourcedPool {
   private poolPromise: Promise<void>;
   private passiveFactory: PoolFactory<ConnectionProvider>;
   private heavyFactory: PoolFactory<ConnectionProvider>;
+
+  terminated = false;
 
   remoteName: string;
   configuration: RemoteConfiguration;
@@ -156,10 +162,16 @@ export class ResourcedPool {
   }
 
   async close() {
-    await this.heavyPool.closeAsync();
+    this.terminated = true;
+    await this.passivePool.closeAsync(true);
+    await this.heavyPool.closeAsync(true);
   }
 
   async getPool(type: PoolType) {
+    console.warn(this.terminated);
+    if (this.terminated) {
+      throw Error('Pool terminated.');
+    }
     // We need await pool to finish...
     await this.poolPromise;
     // Get by type
@@ -170,8 +182,11 @@ export class ResourcedPool {
     this.poolPromise = new Promise(async (resolve, reject) => {
       try {
         logger.appendLineToMessages('Performing reconnection...');
+        this.terminated = true;
         await this.passivePool.closeAsync(true);
+        await this.heavyPool.closeAsync(true);
         await this.setupPool();
+        this.terminated = false;
         resolve();
       } catch(ex: any) {
         logger.appendErrorToMessages('Failed to reconnect: ', ex);
