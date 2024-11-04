@@ -318,7 +318,7 @@ export async function activate(context: vscode.ExtensionContext) {
 							cancellable: false, // Allow cancellation
 						},
 						async () => {
-							const connection = await connectionManager.get(remoteName)?.getPool()?.acquire();
+							const connection = await (await connectionManager.get(remoteName)?.getPool('passive'))?.acquire();
 							if (connection === undefined) {
 								throw Error('SFTP Connection lost.');
 							}
@@ -375,7 +375,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 					// Download if needed
 					logger.appendLineToMessages('Downloading file... ' + realRemotePath.path);
-					await provider.downloadRemoteFileToLocalIfNeeded(realRemotePath, false);
+					await provider.downloadRemoteFileToLocalIfNeeded(realRemotePath, false, 'passive');
 
 					const directoryLocalPath = provider.getDirectoryPath(calculatedLocalFile);
 					logger.appendLineToMessages('Opening folder... ' + directoryLocalPath.fsPath);
@@ -430,7 +430,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					location: vscode.ProgressLocation.Notification,
 					title: 'Downloading files...'
 				}, async (progress, token) => {
-					await provider.downloadRemoteFolderToLocal(uri, token);
+					await provider.downloadRemoteFolderToLocal(uri, progress, token);
 				});
 				
 				item.text = '$(cloud) Ready';
@@ -440,6 +440,26 @@ export async function activate(context: vscode.ExtensionContext) {
 				logger.appendErrorToMessages('[remote-folder-download] Failed due error:', ex);
 				vscode.window.showErrorMessage('Operation failed: ' + ex.message);
 			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('sftpfs.reconnect', async () => {
+			const response = await vscode.window.showInformationMessage(
+				'Are you sure to reconnect? All current operation will be interrupted, files can be corrupted, it is recommended to cancel current running operations before doing a reconnect.',
+				{
+					modal: true
+				},
+				'Yes',
+				'No'
+			);
+
+			if (response === 'No' || response === undefined) {
+				return;
+			}
+
+			// Ok, attempt a reconnection.
+			await connectionManager.reconnect();
 		})
 	);
 

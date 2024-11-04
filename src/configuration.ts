@@ -1,6 +1,7 @@
 import { workspace } from "vscode";
 
 class Configuration {
+
   async getRemotesConfiguration() {
     const currentRemotes = workspace.getConfiguration('sftpfs').get<RemoteConfigurationSection>('remotes');
     if (currentRemotes === undefined) {
@@ -112,3 +113,15 @@ export interface WorkDirConfiguration {
   workDir: string
 }
 
+export interface PoolConfigurationSection {
+  passive: PoolConfiguration
+  heavy: PoolConfiguration
+}
+
+export interface PoolConfiguration {
+  max?: number
+  min?: number
+  minIdle?: number
+  idleTimeoutMillis?: number
+  maxQueue?: number
+}

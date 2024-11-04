@@ -30,31 +30,35 @@
       },
       {
         "command": "sftpfs.showInSystemExplorer",
-        "title": "Open in System Explorer"
+        "title": "Reveal in System Explorer"
       },
       {
         "command": "sftpfs.downloadRemoteFolder",
-        "title": "Sync: Download from remote"
+        "title": "SFTP Dir Sync: Remote → Local"
       },
       {
         "command": "sftpfs.uploadLocalFolder",
-        "title": "Sync: Upload to remote"
-      },
-      {
-        "command": "sftpfs.refreshRemoteFolder",
-        "title": "Sync: Refresh Folder"
+        "title": "SFTP Dir Sync: Local → Remote"
       },
       {
         "command": "sftpfs.downloadRemoteFile",
-        "title": "Sync: Download from remote"
+        "title": "SFTP File Sync: Remote → Local"
       },
       {
         "command": "sftpfs.uploadLocalFile",
-        "title": "Sync: Upload to remote"
+        "title": "SFTP File Sync: Local → Remote"
+      },
+      {
+        "command": "sftpfs.refreshRemoteFolder",
+        "title": "Sync: Refresh folder"
       },
       {
         "command": "sftpfs.removeLocalFile",
-        "title": "Remove local file (Keep remote file)"
+        "title": "SFTP: Remove local file (Keep remote file)"
+      },
+      {
+        "command": "sftpfs.reconnect",
+        "title": "SFTP: Reconnect"
       }
     ],
     "menus": {
@@ -93,6 +97,11 @@
           "command": "sftpfs.uploadLocalFile",
           "when": "resourceScheme == 'sftp' && !explorerResourceIsFolder",
           "group": "sftp"
+        },
+        {
+          "command": "sftpfs.reconnect",
+          "when": "resourceScheme == 'sftp'",
+          "group": "sftp"
         }
       ],
       "commandPalette": [
@@ -119,12 +128,66 @@
         {
           "command": "sftpfs.uploadLocalFile",
           "when": "false"
+        },
+        {
+          "command": "sftpfs.reconnect",
+          "when": "false"
         }
       ]
     },
     "configuration": {
       "title": "SFTP FS Remote",
       "properties": {
+        "sftpfs.pool.passive.max": {
+          "type": "integer",
+          "description": "Maximum number of connection to open at same time, take in consideration that the SFTP server may restrict the total amount of multiple connections at same time.",
+          "default": 5
+        },
+        "sftpfs.pool.passive.min": {
+          "type": "integer",
+          "description": "Minimum amount of connection to keep in the pool for future requests, at least make it to be 1/3 of the maximum connections for better performance, for example if maximum connections is 15 set this to 5.",
+          "default": 3
+        },
+        "sftpfs.pool.passive.minIdle": {
+          "type": "integer",
+          "description": "Amount of connections to keep as idle, a connection is marked as idle when it is released after a SFTP operation, so it can be re-used for next operations without the needing of re-open the connection.",
+          "default": 3
+        },
+        "sftpfs.pool.passive.maxQueue": {
+          "type": "integer",
+          "description": "Maximum amount of requests to keep in queue if all connections are in use, we recommend to keep it as high as posible, for example 1_000_000, because extension does many operations in paralell form, so multiple acquire requests are queued at same time to perform the operation.",
+          "default": 10000000
+        },
+        "sftpfs.pool.passive.idleTimeoutMillis": {
+          "type": "integer",
+          "description": "Time in milliseconds to keep a connection as idle, idle connections will be closed if not are used after the timeout is reached.",
+          "default": 60000
+        },
+        "sftpfs.pool.heavy.max": {
+          "type": "integer",
+          "description": "Maximum number of connection to open at same time, take in consideration that the SFTP server may restrict the total amount of multiple connections at same time.",
+          "default": 15
+        },
+        "sftpfs.pool.heavy.min": {
+          "type": "integer",
+          "description": "Minimum amount of connection to keep in the pool for future requests, at least make it to be 1/3 of the maximum connections for better performance, for example if maximum connections is 15 set this to 5.",
+          "default": 5
+        },
+        "sftpfs.pool.heavy.minIdle": {
+          "type": "integer",
+          "description": "Amount of connections to keep as idle, a connection is marked as idle when it is released after a SFTP operation, so it can be re-used for next operations without the needing of re-open the connection.",
+          "default": 5
+        },
+        "sftpfs.pool.heavy.maxQueue": {
+          "type": "integer",
+          "description": "Maximum amount of requests to keep in queue if all connections are in use, we recommend to keep it as high as posible, for example 1_000_000, because extension does many operations in paralell form, so multiple acquire requests are queued at same time to perform the operation.",
+          "default": 10000000
+        },
+        "sftpfs.pool.heavy.idleTimeoutMillis": {
+          "type": "integer",
+          "description": "Time in milliseconds to keep a connection as idle, idle connections will be closed if not are used after the timeout is reached.",
+          "default": 60000
+        },
         "sftpfs.workDirs": {
           "type": "object",
           "description": "Used by the extension to manage working directories for remote connections.",

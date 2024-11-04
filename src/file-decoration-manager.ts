@@ -75,6 +75,7 @@ export class FileDecorationManager {
     if (uri.scheme !== 'sftp') {
       return undefined;
     }
+    console.info('[decoration] Updated decoration for ' + uri.toString() + ' to ' + decoration.badge);
     this.decorations.set(uri.toString(), {
       realUri: uri,
       decoration
