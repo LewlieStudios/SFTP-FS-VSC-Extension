@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import logger from './logger';
 import configuration, { RemoteConfiguration } from './configuration';
 import connectionManager, { ConnectionProvider, PoolType } from './connection-manager';
-import { SFTPWrapper, Stats } from 'ssh2';
+import { FileEntryWithStats, SFTPWrapper, Stats } from 'ssh2';
 import upath from 'upath';
 import * as childProcess from 'child_process';
 import fileDecorationManager from './file-decoration-manager';
@@ -161,6 +161,10 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     stat(uri: vscode.Uri): Promise<vscode.FileStat> {
+        return this.$stat(uri, true, 'passive');
+    }
+
+    $stat(uri: vscode.Uri, fallbackToLocalFile: boolean, connectionType: PoolType): Promise<vscode.FileStat> {
         return new Promise(async (resolve, reject) => {
             if (uri.path === '/') {
                 resolve(
@@ -188,7 +192,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
             try {
                 await this.setupFileSystem(uri);
-                const connectionProvider = await this.getConnection('passive');
+                const connectionProvider = await this.getConnection(connectionType);
                 const connection = connectionProvider?.getSFTP();
 
                 if (connection === undefined) {
@@ -200,51 +204,75 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                 try {
                     logger.appendLineToMessages('[stat] ' + uri.path);
                     connection!.lstat(uri.path, async (err: any, stats) => {
+                        var fileStats: Stats | vscode.FileStat = stats;
+                        var isLocalOnly = false;
+
                         if (err) {
                             await this.releaseConnection(connectionProvider);
 
-                            if (err.code === ErrorCodes.FILE_NOT_FOUND) {
-                                logger.appendLineToMessages('File not found when stat file (' + this.remoteName + '): ' + uri.path);
-                                reject(vscode.FileSystemError.FileNotFound(uri));
+                            if (err.code === ErrorCodes.FILE_NOT_FOUND && fallbackToLocalFile) {
+                                // If not exists probably it is a local file that is still not uploaded to remote...
+                                const localUri = this.getLocalFileUri(uri);
+                                const localStats = await this.statLocalFileByUri(localUri);
+
+                                if (localStats === undefined) {
+                                    // Okay, definitively it do not exists.
+                                    logger.appendLineToMessages('File not found when stat file (' + this.remoteName + '): ' + uri.path);
+                                    reject(vscode.FileSystemError.FileNotFound(uri));
+                                    return;
+                                } else {
+                                    fileStats = localStats;
+                                    isLocalOnly = true;
+                                }
+                            } else {
+                                reject(err);
                                 return;
                             }
-
-                            reject(err);
-                            return;
                         }
 
                         try {
-                            var fileStats = stats;
-                            var fileType = this.getFileTypeByStats(fileStats);
+                            var fileType = (isLocalOnly) ? (fileStats as vscode.FileStat).type : this.getFileTypeByStats(fileStats as Stats);
 
                             if (fileType === vscode.FileType.SymbolicLink) {
+                                if (isLocalOnly) {
+                                    // TODO: Must follow symbolic link for local??
+                                    await this.releaseConnection(connectionProvider);
+                                    reject(vscode.FileSystemError.FileNotFound(uri));
+                                    return;
+                                }
+                                
                                 fileStats = await this.followSymbolicLinkAndGetStats(connection, uri);
                                 fileType = this.getFileTypeByStats(fileStats);
                             }
 
                             // Check local file
-                            var calculatedLocalFile = this.getLocalFileUri(uri);
-                            const lock = this.addWatchLockFromLocalUri(calculatedLocalFile);
-                            try {
-                                const localFileStat = await this.statLocalFileByUri(calculatedLocalFile);
-                                if (localFileStat === undefined) {
-                                    fileDecorationManager.setRemoteFileDecoration(uri);
-                                } else {
-                                    if (localFileStat.type === vscode.FileType.Directory) {
-                                        fileDecorationManager.setDirectoryFileDecoration(uri);
+                            if (isLocalOnly) {
+                                fileDecorationManager.setLocalUploadFileDecoration(uri);
+                            } else {
+                                var calculatedLocalFile = this.getLocalFileUri(uri);
+                                const lock = this.addWatchLockFromLocalUri(calculatedLocalFile);
+
+                                try {
+                                    const localFileStat = await this.statLocalFileByUri(calculatedLocalFile);
+                                    if (localFileStat === undefined) {
+                                        fileDecorationManager.setRemoteFileDecoration(uri);
                                     } else {
-                                        const res = await this.resolveWhatFileIsNewer(localFileStat, fileStats);
-                                        if (res === 'local_newer' || res === "same") {
-                                            fileDecorationManager.setUpToDateFileDecoration(uri);
-                                        } else if(res === 'remote_newer') {
-                                            fileDecorationManager.setRemoteDownloadFileDecoration(uri);
+                                        if (localFileStat.type === vscode.FileType.Directory) {
+                                            fileDecorationManager.setDirectoryFileDecoration(uri);
                                         } else {
-                                            fileDecorationManager.setUnknownStateFileDecoration(uri);
+                                            const res = await this.resolveWhatFileIsNewer(localFileStat, fileStats);
+                                            if (res === 'local_newer' || res === "same") {
+                                                fileDecorationManager.setUpToDateFileDecoration(uri);
+                                            } else if(res === 'remote_newer') {
+                                                fileDecorationManager.setRemoteDownloadFileDecoration(uri);
+                                            } else {
+                                                fileDecorationManager.setUnknownStateFileDecoration(uri);
+                                            }
                                         }
                                     }
+                                } finally {
+                                    this.removeWatchLock(lock);
                                 }
-                            } finally {
-                                this.removeWatchLock(lock);
                             }
 
                             await this.releaseConnection(connectionProvider);
@@ -303,16 +331,48 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     throw Error('Broken connection to SFTP server.');
                 }
 
-                connection.readdir(uri.path, async (err, stats) => {
+                // Resolve local files...
+                const result: [string, vscode.FileType][] = [];
+                const listLocalFunc = async (stats: FileEntryWithStats[] | undefined) => {
+                    const localUri = this.getLocalFileUri(uri);
+                    const localStats = await this.statLocalFileByUri(localUri);
+
+                    if (localStats !== undefined && localStats.type === vscode.FileType.Directory) {
+                        // list files
+                        const localFiles = await vscode.workspace.fs.readDirectory(localUri);
+
+                        localFiles.forEach((local) => {
+                            var found = false;
+
+                            if (stats !== undefined) {
+                                for (const entry of stats) {
+                                    if (local[0].toLowerCase() === entry.filename.toLowerCase()) {
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (!found) {
+                                // Local file
+                                result.push(local);
+                                const entryLocalUri = localUri.with({ path: upath.join(localUri.path, local[0])});
+                                const remoteLocalUri = this.getRemoteFileUri(entryLocalUri);
+                                fileDecorationManager.setLocalUploadFileDecoration(remoteLocalUri);
+                            }
+                        });
+                    }
+                };
+
+                connection.readdir(uri.path, async (err: any, stats) => {
                     if(err) {
                         await this.releaseConnection(connectionProvider);
-                        reject(err);
+                        await listLocalFunc(undefined);
+                        resolve(result);
                         return;
                     }
 
                     try {
-                        const result: [string, vscode.FileType][] = [];
-
                         for (const entry of stats) {
                             var entryStats = entry.attrs;
                             var fileType = this.getFileTypeByStats(entryStats);
@@ -345,6 +405,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             }
                         }
 
+                        await listLocalFunc(stats);
                         await this.releaseConnection(connectionProvider);
                         resolve(result);
                     } catch(ex: any) {
@@ -489,6 +550,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     statLocal = await this.statLocalFileByUri(localPath);
                     const filename = this.getFilename(uri);
 
+                    // TODO: Merge this code with uploadRemoteFile logic.
                     // upload file to remote
                     await vscode.window.withProgress({
                         cancellable: false,
@@ -533,7 +595,6 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                         }
 
                         try {
-                            this.addWatchLockFromLocalUri(localPath);
                             fs.utimes(localPath.fsPath, stats.atime, stats.mtime, (err) => {
                                 if (err) {
                                     // This error is not really important, so instead of fail the entire process only print this in the logs...
@@ -546,6 +607,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                 this._fireSoon({ type: vscode.FileChangeType.Changed, uri });
                                 resolve();
                             });
+                            fileDecorationManager.setUpToDateFileDecoration(uri);
                         } catch(ex: any) {
                             this.releaseConnection(connectionProvider);
                             this.removeWatchLock(lock);
@@ -756,6 +818,87 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                 return;
             }
 
+            // Check if old uri exists, if not, then a local file is renamed!
+            var isOldLocal = false;
+
+            try {
+                const oldStat = await this.$stat(oldUri, false, 'passive');
+                console.warn('RENAME STAT SUCCESS!!: ' + oldUri.path);
+                console.warn(oldStat);
+            } catch(ex: any) {
+                if (ex instanceof vscode.FileSystemError || ex.code === ErrorCodes.FILE_NOT_FOUND) {
+                    if (ex.code === 'FileNotFound' || ex.code === ErrorCodes.FILE_NOT_FOUND) {
+                        console.warn('IS NOT FOUND 111');
+                        // Okay, old uri is local only
+                        isOldLocal = true;
+                    } else {
+                        this.releaseConnection(connectionProvider);
+                        console.warn('IS NOT FOUND 222');
+                        console.warn(ex);
+                        reject(ex);
+                        return;
+                    }
+                } else {
+                    this.releaseConnection(connectionProvider);
+                    console.warn('IS NOT FOUND 333');
+                    console.warn(ex);
+                    reject(ex);
+                    return;
+                }
+            }
+
+            console.warn('IS NOT FOUND 555' + isOldLocal);
+            if (isOldLocal) {
+                try {
+                    // Special logic! First we need to verify if the target exists on remote...
+                    var targetExistsRemote = true;
+                    try {
+                        console.warn('IS NOT FOUND 666');
+                        await this.$stat(newUri, false, 'passive');
+                    } catch(ex: any) {
+                        if (ex instanceof vscode.FileSystemError || ex.code === ErrorCodes.FILE_NOT_FOUND) {
+                            if (ex.code === 'FileNotFound' || ex.code === ErrorCodes.FILE_NOT_FOUND) {
+                                console.warn('IS NOT FOUND 777');
+                                // Okay, new uri is local only
+                                targetExistsRemote = false;
+                            } else {
+                                console.warn('IS NOT FOUND 888');
+                                this.releaseConnection(connectionProvider);
+                                console.warn(ex);
+                                reject(ex);
+                                return;
+                            }
+                        } else {
+                            console.warn('IS NOT FOUND 999');
+                            this.releaseConnection(connectionProvider);
+                            console.warn(ex);
+                            reject(ex);
+                            return;
+                        }
+                    }
+
+                    console.warn('IS NOT FOUND AAA');
+                    if (targetExistsRemote) {
+                        // Cannot rename!
+                        this.releaseConnection(connectionProvider);
+                        reject(Error('Unable to rename, file "' + (newUri.path) + '" exists on remote server, remove remote file first.'));
+                        return;
+                    }
+                    
+                    console.warn('IS NOT FOUND BBB');
+                    // Rename on local...
+                    console.warn('PERFORMING??');
+                    await vscode.workspace.fs.rename(
+                        this.getLocalFileUri(oldUri),
+                        this.getLocalFileUri(newUri)
+                    );
+                    resolve();
+                } catch(ex: any) {
+                    reject(ex);
+                }
+                return;
+            }
+
             logger.appendLineToMessages('[rename] From ' + oldUri.path + ' to ' + newUri.path);
             connection.rename(oldUri.path, newUri.path, async (err) => {
                 if (err) {
@@ -876,7 +1019,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         }
     }
 
-    async resolveWhatFileIsNewer(localStats: vscode.FileStat, remoteStats: Stats): Promise<'same' | 'local_newer' | 'remote_newer' | 'same_mtime_different_size'> {
+    async resolveWhatFileIsNewer(localStats: vscode.FileStat, remoteStats: Stats | vscode.FileStat): Promise<'same' | 'local_newer' | 'remote_newer' | 'same_mtime_different_size'> {
         try {
           // Get local file metadata
           const localModifiedTime = localStats.mtime; // Modification time in milliseconds
@@ -1125,7 +1268,12 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                 });
                 resolve(res);
             } catch(ex: any) {
-                reject(ex);
+                if (ex instanceof vscode.FileSystemError && ex.code === 'FileNotFound') {
+                    // Not found!
+                    resolve([]);
+                } else {
+                    reject(ex);
+                }
             }
         });
     }
@@ -1330,9 +1478,187 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         });
     }
 
-    async uploadLocalFileToRemoteIfNeeded(uri: vscode.Uri, connectionType: PoolType, parentToken: vscode.CancellationToken | undefined = undefined): Promise<Uint8Array | undefined> {
+    async uploadLocalFileToRemoteIfNeeded(localUri: vscode.Uri, connectionType: PoolType, parentToken: vscode.CancellationToken | undefined = undefined): Promise<void> {
         return new Promise(async (resolve, reject) => {
-            dd
+            try {
+                if (parentToken !== undefined && parentToken.isCancellationRequested) {
+                    reject(Error('Upload cancelled by user.'));
+                    throw Error('Upload cancelled by user.');
+                }
+
+                const remoteUri = this.getRemoteFileUri(localUri);
+
+                // Check if file exists
+                var remoteStat: vscode.FileStat | undefined = undefined;
+
+                try {
+                    remoteStat = await this.$stat(localUri, true, 'heavy');
+                } catch(ex: any) {
+                    if (ex instanceof vscode.FileSystemError) {
+                        if (ex.code !== 'FileNotFound') {
+                            reject(ex);
+                            return;
+                        }
+                    } else {
+                        reject(ex);
+                        return;
+                    }
+                }
+                const localStat = await this.statLocalFileByUri(localUri);
+
+                if (localStat === undefined) {
+                    // unexpected
+                    reject(Error('Local file not found.'));
+                    return;
+                }
+
+                if (remoteStat !== undefined) {
+                    // Determine if the remote file is newer than ours.
+
+                    const compare = await this.resolveWhatFileIsNewer(localStat, remoteStat);
+
+                    if (compare === 'remote_newer') {
+                        // To prevent an overwrite, skip this file as the remote is newer than ours file...
+                        fileDecorationManager.setRemoteDownloadFileDecoration(remoteUri);
+                        resolve();
+                        return;
+                    }
+                }
+
+                if (parentToken !== undefined && parentToken.isCancellationRequested) {
+                    reject(Error('Upload cancelled by user.'));
+                    throw Error('Upload cancelled by user.');
+                }
+
+                // Check if parent folder exists.
+                const parentFolder = remoteUri.with({ path: upath.dirname(remoteUri.path) });
+                
+                const connectionProvider = await this.getConnection(connectionType);
+                const connection = connectionProvider?.getSFTP();
+                if (connection === undefined) {
+                    await this.releaseConnection(connectionProvider);
+                    reject(Error('Broken connection to SFTP server.'));
+                    return;
+                }
+
+                if (parentToken !== undefined && parentToken.isCancellationRequested) {
+                    reject(Error('Upload cancelled by user.'));
+                    throw Error('Upload cancelled by user.');
+                }
+
+                try {
+                    if (parentFolder.path !== '/') { // Check if parent folder is not the root folder
+                        // Make folder if needed...
+                        await this.mkdirRemoteRecursive(connection, parentFolder);
+                    }
+    
+                    // Read local file content...
+                    const filename = upath.basename(remoteUri.path);
+                    const fileSize = localStat.size;
+    
+                    // Upload file...
+                    // upload file to remote
+                    fileDecorationManager.getStatusBarItem().text = '$(cloud-upload) ' + remoteUri.path;
+
+                    if (fileSize > (1024) * (1024) * 1) {
+                        await vscode.window.withProgress({
+                            cancellable: true,
+                            location: vscode.ProgressLocation.Notification,
+                            title: 'Uploading ' + filename + '...'
+                        }, (progress, token) => {
+                            return new Promise<void>(async (resolveProgress, rejectProgress) => {
+                                connection.fastPut(
+                                    localUri.fsPath, 
+                                    remoteUri.path,
+                                    {
+                                        fileSize: localStat.size,
+                                        step(total, nb, fileSize) {
+                                            if (token !== undefined && token.isCancellationRequested || parentToken !== undefined && parentToken.isCancellationRequested) {
+                                                reject(Error('Upload cancelled by user.'));
+                                                throw Error('Upload cancelled by user.');
+                                            }
+                                            logger.appendLineToMessages('[upload-file ' + filename + '] Progress "' + total + '" of "' + fileSize + '" transferred.');
+                                            progress.report({ increment: (nb / fileSize) * 100 }); 
+                                        },
+                                    },
+                                    async (err) => {
+                                        if (err) {
+                                            rejectProgress(err);
+                                            return;
+                                        }
+
+                                        resolveProgress();
+                                    }
+                                );
+                            });
+                        });
+                    } else {
+                        await new Promise<void>(async (resolveProgress, rejectProgress) => {
+                            connection.fastPut(
+                                localUri.fsPath, 
+                                remoteUri.path,
+                                {
+                                    fileSize: localStat.size,
+                                    step(total, nb, fileSize) {
+                                        if (parentToken !== undefined && parentToken.isCancellationRequested) {
+                                            reject(Error('Upload cancelled by user.'));
+                                            throw Error('Upload cancelled by user.');
+                                        }
+                                        logger.appendLineToMessages('[upload-file ' + filename + '] Progress "' + total + '" of "' + fileSize + '" transferred.');
+                                    },
+                                },
+                                async (err) => {
+                                    if (err) {
+                                        rejectProgress(err);
+                                        return;
+                                    }
+
+                                    resolveProgress();
+                                }
+                            );
+                        });
+                    }
+
+                    logger.appendLineToMessages('[upload-remote-file] Write completed, mtime must be updated for: ' + localUri.path);
+                    connection.lstat(remoteUri.path, async (err: any, stats) => {
+                        if (err) {
+                            // No error expected at this point, but since we only need stats at this point to adjust the mtime of local file
+                            // then we will simply discard this error and print in the logs.
+                            logger.appendErrorToMessages('[upload-remote-file] Something went wrong while updating mtime of local file: ', err);
+                            this.releaseConnection(connectionProvider);
+                            this._fireSoon({ type: vscode.FileChangeType.Changed, uri: remoteUri });
+                            resolve();
+                            return;
+                        }
+
+                        const lock = this.addWatchLockFromLocalUri(localUri);
+
+                        try {
+                            fs.utimes(localUri.fsPath, stats.atime, stats.mtime, (err) => {
+                                if (err) {
+                                    // This error is not really important, so instead of fail the entire process only print this in the logs...
+                                    logger.appendErrorToMessages('[upload-remote-file] Something went wrong while updating mtime of local file: ', err);
+                                }
+
+                                this.releaseConnection(connectionProvider);
+                                this.removeWatchLock(lock);
+                                this._fireSoon({ type: vscode.FileChangeType.Changed, uri: remoteUri });
+                                resolve();
+                            });
+                            fileDecorationManager.setUpToDateFileDecoration(remoteUri);
+                        } catch(ex: any) {
+                            this.releaseConnection(connectionProvider);
+                            this.removeWatchLock(lock);
+                            logger.appendErrorToMessages('[upload-remote-file] Something went wrong: ', ex);
+                            reject(ex);
+                        }
+                    });
+                } finally {
+                    this.releaseConnection(connectionProvider);
+                }
+            } catch(ex: any) {
+                reject(ex);
+            }
         });
     }
 
@@ -1354,9 +1680,23 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                 return;
             }
 
-            connection.lstat(uri.path, async(error, remoteStat) => {
+            connection.lstat(uri.path, async(error: any, remoteStat) => {
                 if (error) {
                     await this.releaseConnection(connectionProvider);
+
+                    if (error.code === ErrorCodes.FILE_NOT_FOUND && readFile) {
+                        // May be a local file only...
+                        const localUri = this.getLocalFileUri(uri);
+                        const localStats = this.statLocalFileByUri(localUri);
+                        if (localStats !== undefined) {
+                            // Local file found, read it and send in response...
+                            resolve(
+                                await vscode.workspace.fs.readFile(localUri)
+                            );
+                            return;
+                        }
+                    }
+
                     reject(error);
                     return;
                 }
@@ -1477,8 +1817,8 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                     fileDecorationManager.getStatusBarItem().text = '$(cloud-download) ' + uri.path;
 
-                    if (fileSize > (1024) * (1024) * 10) {
-                        // More than 10mb, do in progressive notification.
+                    if (fileSize > (1024) * (1024) * 1) {
+                        // More than 1mb, do in progressive notification.
                         res = await vscode.window.withProgress({
                             cancellable: true,
                             location: vscode.ProgressLocation.Notification,
@@ -1791,9 +2131,48 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
     sendUpdateForRootFolder(workspaceUri: vscode.Uri) {
         setTimeout(async () => {
-            console.warn('Fired changed');
             await vscode.commands.executeCommand('workbench.files.action.refreshFilesExplorer');
         }, 1500);
+    }
+
+    async mkdirRemoteRecursive(sftp: SFTPWrapper, uri: vscode.Uri) {
+        const targetPath = uri.path;
+        const parts = targetPath.split('/');
+        let currentPath = '';
+    
+        for (const part of parts) {
+            if (!part) {
+                continue; // Skip empty parts (like the leading '/')
+            }
+    
+            currentPath += `/${part}`;
+    
+            // Check if the directory exists, and if not, create it
+            const exists = await new Promise((resolve, reject) => {
+                sftp.stat(currentPath, (err: any) => {
+                    if (err && err.code === 2) { // Directory does not exist
+                        resolve(false);
+                    } else if (err) {
+                        reject(err); // Other errors
+                    } else {
+                        resolve(true); // Directory exists
+                    }
+                });
+            });
+    
+            if (!exists) {
+                // Directory doesn't exist, so we create it
+                await new Promise<void>((resolve, reject) => {
+                    sftp.mkdir(currentPath, (err: any) => {
+                        if (err) {
+                            reject(err);
+                        } else {
+                            resolve();
+                        }
+                    });
+                });
+            }
+        }
     }
 }
 

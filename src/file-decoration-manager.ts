@@ -20,6 +20,17 @@ export class FileDecorationManager {
       {
         'badge': '☁️',
         'tooltip': 'Remote file not present in local storage',
+        propagate: false,
+      }
+    );
+  }
+
+  setLocalUploadFileDecoration(uri: vscode.Uri) {
+    this.updateDecoration(
+      uri,
+      {
+        'badge': '✨⬆️',
+        'tooltip': 'This file do not exist on remote server, so you must upload it to sync file to remote.',
         propagate: false
       }
     );
@@ -75,7 +86,7 @@ export class FileDecorationManager {
     if (uri.scheme !== 'sftp') {
       return undefined;
     }
-    console.info('[decoration] Updated decoration for ' + uri.toString() + ' to ' + decoration.badge);
+    // console.info('[decoration] Updated decoration for ' + uri.toString() + ' to ' + decoration.badge);
     this.decorations.set(uri.toString(), {
       realUri: uri,
       decoration

@@ -168,7 +168,6 @@ export class ResourcedPool {
   }
 
   async getPool(type: PoolType) {
-    console.warn(this.terminated);
     if (this.terminated) {
       throw Error('Pool terminated.');
     }

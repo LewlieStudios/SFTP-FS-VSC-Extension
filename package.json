@@ -44,27 +44,31 @@
       },
       {
         "command": "sftpfs.downloadRemoteFolder",
-        "title": "SFTP Dir Sync: Remote → Local"
+        "title": "SFTP Dir Sync: 1. Remote → Local (download)"
       },
       {
         "command": "sftpfs.uploadLocalFolder",
-        "title": "SFTP Dir Sync: Local → Remote"
-      },
-      {
-        "command": "sftpfs.downloadRemoteFile",
-        "title": "SFTP File Sync: Remote → Local"
-      },
-      {
-        "command": "sftpfs.uploadLocalFile",
-        "title": "SFTP File Sync: Local → Remote"
+        "title": "SFTP Dir Sync: 2. Local → Remote (upload)"
       },
       {
         "command": "sftpfs.refreshRemoteFolder",
-        "title": "Sync: Refresh folder"
+        "title": "SFTP Dir Sync: 3. Local ↔ Remote (both)"
+      },
+      {
+        "command": "sftpfs.downloadRemoteFile",
+        "title": "SFTP File Sync: 1. Remote → Local (download)"
+      },
+      {
+        "command": "sftpfs.uploadLocalFile",
+        "title": "SFTP File Sync: 2. Local → Remote (upload)"
+      },
+      {
+        "command": "sftpfs.refreshRemoteFile",
+        "title": "SFTP File Sync: 3. Local ↔ Remote (both)"
       },
       {
         "command": "sftpfs.removeLocalFile",
-        "title": "SFTP: Remove local file (Keep remote file)"
+        "title": "Remove local file (Keep remote file)"
       },
       {
         "command": "sftpfs.reconnect",
@@ -80,47 +84,52 @@
         {
           "command": "sftpfs.disconnectDirectRemote",
           "when": "resourceScheme == 'sftp' && resourcePath == '/'",
-          "group": "sftp"
+          "group": "sftp.connection"
         },
         {
           "command": "sftpfs.removeLocalFile",
           "when": "resourceScheme == 'sftp'",
-          "group": "sftp"
+          "group": "sftp.miscellaneous"
         },
         {
           "command": "sftpfs.showInSystemExplorer",
           "when": "resourceScheme == 'sftp' && resourcePath != '/'",
-          "group": "sftp"
+          "group": "sftp.miscellaneous"
         },
         {
           "command": "sftpfs.downloadRemoteFolder",
           "when": "resourceScheme == 'sftp' && explorerResourceIsFolder && resourcePath != '/'",
-          "group": "sftp"
+          "group": "sftp.io"
         },
         {
           "command": "sftpfs.uploadLocalFolder",
           "when": "resourceScheme == 'sftp' && explorerResourceIsFolder && resourcePath != '/'",
-          "group": "sftp"
+          "group": "sftp.io"
         },
         {
           "command": "sftpfs.refreshRemoteFolder",
           "when": "resourceScheme == 'sftp' && explorerResourceIsFolder && resourcePath != '/'",
-          "group": "sftp"
+          "group": "sftp.io"
         },
         {
           "command": "sftpfs.downloadRemoteFile",
           "when": "resourceScheme == 'sftp' && !explorerResourceIsFolder",
-          "group": "sftp"
+          "group": "sftp.io"
         },
         {
           "command": "sftpfs.uploadLocalFile",
           "when": "resourceScheme == 'sftp' && !explorerResourceIsFolder",
-          "group": "sftp"
+          "group": "sftp.io"
+        },
+        {
+          "command": "sftpfs.refreshRemoteFile",
+          "when": "resourceScheme == 'sftp' && !explorerResourceIsFolder",
+          "group": "sftp.io"
         },
         {
           "command": "sftpfs.reconnect",
           "when": "resourceScheme == 'sftp' && resourcePath == '/'",
-          "group": "sftp"
+          "group": "sftp.connection"
         }
       ],
       "commandPalette": [
@@ -150,6 +159,10 @@
         },
         {
           "command": "sftpfs.uploadLocalFile",
+          "when": "false"
+        },
+        {
+          "command": "sftpfs.refreshRemoteFile",
           "when": "false"
         },
         {
