@@ -2,8 +2,12 @@
   "name": "sftpfs",
   "displayName": "sftpfs",
   "description": "",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "publisher": "wirlie",
+  "author": {
+    "name": "wirlie",
+    "url": "https://wirlie.net"
+  },
   "engines": {
     "vscode": "^1.95.0"
   },
@@ -17,6 +21,9 @@
   "enabledApiProposals": [
     "contribViewsWelcome"
   ],
+  "repository": {
+    "url": "https://github.com/LewLie/SFTP-FS-VSC-Extension"
+  },
   "contributes": {
     "viewsWelcome": [
         {
