@@ -3,10 +3,13 @@ import * as vscode from 'vscode';
 
 export class Logger {
   messagesChannel!: OutputChannel;
+  messagesErrChannel!: OutputChannel;
 
   init() {
     this.messagesChannel = vscode.window.createOutputChannel('SFTP FS - Messages');
     this.messagesChannel.appendLine('This output channel will contain general messages related to SFTP FS.');
+    this.messagesErrChannel = vscode.window.createOutputChannel('SFTP FS - Errors');
+    this.messagesErrChannel.appendLine('This output channel will contain error messages related to SFTP FS.');
   }
 
   appendLineToMessages(content: string) {
@@ -14,9 +17,9 @@ export class Logger {
     this.messagesChannel.appendLine(content);
   }
 
-  appendErrorToMessages(usefulMessage: string, error: Error) {
-    console.error('An error occurred: ' + usefulMessage + ': (' + error.message + '): ' + error.stack);
-    this.messagesChannel.appendLine('An error occurred: ' + usefulMessage + ': (' + error.message + '): ' + error.stack);
+  appendErrorToMessages(prefix: string, usefulMessage: string, error: Error) {
+    console.error('[' + prefix + '] An error occurred: ' + usefulMessage + ': (' + error.message + '): ' + error.stack);
+    this.messagesErrChannel.appendLine('[' + prefix + '] ' + usefulMessage + ': (' + error.message + '): ' + error.stack);
   }
 }
 

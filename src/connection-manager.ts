@@ -188,7 +188,7 @@ export class ResourcedPool {
         this.terminated = false;
         resolve();
       } catch(ex: any) {
-        logger.appendErrorToMessages('Failed to reconnect: ', ex);
+        logger.appendErrorToMessages('reconnect', 'Failed to reconnect: ', ex);
         reject(ex);
       }
     });

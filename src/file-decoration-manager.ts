@@ -29,6 +29,17 @@ export class FileDecorationManager {
     this.updateDecoration(
       uri,
       {
+        'badge': '⬆️',
+        'tooltip': 'This file do not exist on remote server, so you must upload it to sync file to remote.',
+        propagate: false
+      }
+    );
+  }
+
+  setLocalNewFileDecoration(uri: vscode.Uri) {
+    this.updateDecoration(
+      uri,
+      {
         'badge': '✨⬆️',
         'tooltip': 'This file do not exist on remote server, so you must upload it to sync file to remote.',
         propagate: false

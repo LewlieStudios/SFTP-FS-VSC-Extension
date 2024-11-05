@@ -135,7 +135,7 @@ export async function activate(context: vscode.ExtensionContext) {
 									})
 									.catch((ex) => {
 										vscode.window.showErrorMessage('Something went wrong...');
-										logger.appendErrorToMessages('Unable to save remote configuration.', ex);
+										logger.appendErrorToMessages('sftpfs.addRemote', 'Unable to save remote configuration.', ex);
 									});
 								});
 							});
@@ -174,7 +174,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						}
 					}).catch((ex) => {
 						vscode.window.showErrorMessage('Something went wrong...');
-						logger.appendErrorToMessages('Unable to delete remote configuration.', ex);
+						logger.appendErrorToMessages('sftpfs.removeRemote', 'Unable to delete remote configuration.', ex);
 					});
 				}
 			});
@@ -255,12 +255,12 @@ export async function activate(context: vscode.ExtensionContext) {
 									await vscode.workspace.fs.createDirectory(dirPath);
 									logger.appendLineToMessages('Directory created.');
 								} catch(ex: any) {
-									logger.appendErrorToMessages('Error making directory: ' + dirPath.path, ex);
+									logger.appendErrorToMessages('sftpfs.connectRemote', 'Error making directory: ' + dirPath.path, ex);
 									vscode.window.showErrorMessage('Failed to initialize workdir.');
 									return;
 								}
 							} else {
-								logger.appendErrorToMessages('Failed to stat directory: ' + dirPath.path, ex);
+								logger.appendErrorToMessages('sftpfs.connectRemote', 'Failed to stat directory: ' + dirPath.path, ex);
 								vscode.window.showErrorMessage('Failed to initialize workdir.');
 								return;
 							}
@@ -271,7 +271,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						try {
 							await configuration.setWorkDirForRemote(remoteName, workDir);
 						} catch(ex: any) {
-							logger.appendErrorToMessages('Failed to save workspace configuration for remote name "' + remoteName + '", path to save: ' + dirPath.path, ex);
+							logger.appendErrorToMessages('sftpfs.connectRemote', 'Failed to save workspace configuration for remote name "' + remoteName + '", path to save: ' + dirPath.path, ex);
 								vscode.window.showErrorMessage('Failed to initialize workdir.');
 								return;
 						}
@@ -295,12 +295,12 @@ export async function activate(context: vscode.ExtensionContext) {
 									await vscode.workspace.fs.createDirectory(dirPath);
 									logger.appendLineToMessages('Directory created.');
 								} catch(ex: any) {
-									logger.appendErrorToMessages('Error making directory: ' + dirPath.path, ex);
+									logger.appendErrorToMessages('sftpfs.connectRemote', 'Error making directory: ' + dirPath.path, ex);
 									vscode.window.showErrorMessage('Failed to initialize workdir.');
 									return;
 								}
 							} else {
-								logger.appendErrorToMessages('Failed to stat directory: ' + dirPath.path, ex);
+								logger.appendErrorToMessages('sftpfs.connectRemote', 'Failed to stat directory: ' + dirPath.path, ex);
 								vscode.window.showErrorMessage('Failed to initialize workdir.');
 								return;
 							}
@@ -385,7 +385,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					await provider.openLocalFolderInExplorer(directoryLocalPath);
 				}
 			} catch(ex: any) {
-				logger.appendErrorToMessages('[show in explorer] Error', ex);
+				logger.appendErrorToMessages('sftpfs.showInSystemExplorer', 'Error', ex);
 				vscode.window.showErrorMessage(ex.message);
 			}
 		})
@@ -412,7 +412,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				
 				vscode.window.showInformationMessage('Local version of file "' + upath.basename(uri.path) + '" removed.');
 			} catch(ex: any) {
-				logger.appendErrorToMessages('[remote-local-file] Failed due error:', ex);
+				logger.appendErrorToMessages('sftpfs.removeLocalFile', 'Failed due error:', ex);
 				vscode.window.showErrorMessage('Operation failed: ' + ex.message);
 			}
 		})
@@ -440,7 +440,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				vscode.window.showInformationMessage('Upload for "' + upath.basename(uri.path) + '" completed.');
 			} catch(ex: any) {
 				item.text = '$(cloud) Ready';
-				logger.appendErrorToMessages('[remote-folder-upload] Failed due error:', ex);
+				logger.appendErrorToMessages('sftpfs.uploadLocalFolder', 'Failed due error:', ex);
 				vscode.window.showErrorMessage('Operation failed: ' + ex.message);
 			}
 		})
@@ -468,7 +468,37 @@ export async function activate(context: vscode.ExtensionContext) {
 				vscode.window.showInformationMessage('Download for "' + upath.basename(uri.path) + '" completed.');
 			} catch(ex: any) {
 				item.text = '$(cloud) Ready';
-				logger.appendErrorToMessages('[remote-folder-download] Failed due error:', ex);
+				logger.appendErrorToMessages('sftpfs.downloadRemoteFolder', 'Failed due error:', ex);
+				vscode.window.showErrorMessage('Operation failed: ' + ex.message);
+			}
+		})
+	);
+
+	
+	context.subscriptions.push(
+		vscode.commands.registerCommand('sftpfs.refreshRemoteFolder', async (uri: vscode.Uri) => {
+			// Resync in both directions
+			try {
+				const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(uri.authority);
+				if (provider === undefined) {
+					logger.appendLineToMessages('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					return;
+				}
+
+				await vscode.window.withProgress({
+					cancellable: true,
+					location: vscode.ProgressLocation.Notification,
+					title: 'Syncing files...'
+				}, async (progress, token) => {
+					await provider.syncRemoteFolderWithLocal(uri, progress, token);
+				});
+				
+				item.text = '$(cloud) Ready';
+				vscode.window.showInformationMessage('Syncing files for "' + upath.basename(uri.path) + '" completed.');
+			} catch(ex: any) {
+				item.text = '$(cloud) Ready';
+				logger.appendErrorToMessages('sftpfs.refreshRemoteFolder', 'Failed due error:', ex);
 				vscode.window.showErrorMessage('Operation failed: ' + ex.message);
 			}
 		})
@@ -552,7 +582,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					}
 				}
 			} catch(ex: any) {
-				logger.appendErrorToMessages('Error closing project:', ex);
+				logger.appendErrorToMessages('sftpfs.disconnectDirectRemote', 'Error closing project:', ex);
 				vscode.window.showErrorMessage(ex.message);
 			}
 		})
