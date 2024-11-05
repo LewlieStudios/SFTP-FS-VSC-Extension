@@ -178,6 +178,16 @@
     "configuration": {
       "title": "SFTP FS Remote",
       "properties": {
+        "sftpfs.behavior.notification.upload.fileSize": {
+          "type": "integer",
+          "description": "Show a progressive notification when a file has a size greater than the specified amount of Kilobytes, useful to know the current progress of the upload operation.",
+          "default": 5120
+        },
+        "sftpfs.behavior.notification.download.fileSize": {
+          "type": "integer",
+          "description": "Show a progressive notification when a file has a size greater than the specified amount of Kilobytes, useful to know the current progress of the download operation.",
+          "default": 5120
+        },
         "sftpfs.pool.passive.max": {
           "type": "integer",
           "description": "Maximum number of connection to open at same time, take in consideration that the SFTP server may restrict the total amount of multiple connections at same time.",

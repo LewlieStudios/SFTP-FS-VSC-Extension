@@ -567,10 +567,10 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     // TODO: Merge this code with uploadRemoteFile logic.
                     // upload file to remote
                     await vscode.window.withProgress({
-                        cancellable: false,
+                        cancellable: true,
                         location: vscode.ProgressLocation.Notification,
                         title: 'Uploading ' + filename + '...'
-                    }, (progress) => {
+                    }, (progress, token) => {
                         return new Promise<void>(async (resolveProgress, rejectProgress) => {
                             connection.fastPut(
                                 localPath.fsPath, 
@@ -578,6 +578,10 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                 {
                                     fileSize: statLocal!.size,
                                     step(total, nb, fileSize) {
+                                        if (token.isCancellationRequested) {
+                                            reject(Error('Upload cancelled by user.'));
+                                            throw Error('Upload cancelled by user.');
+                                        }
                                         logger.appendLineToMessages('[upload-file ' + filename + '] Progress "' + total + '" of "' + fileSize + '" transferred.');
                                         progress.report({ increment: (nb / fileSize) * 100 }); 
                                     },
@@ -1870,8 +1874,11 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     // Upload file...
                     // upload file to remote
                     fileDecorationManager.getStatusBarItem().text = '$(cloud-upload) ' + remoteUri.path;
+                    
+                    const notificationConfig = vscode.workspace.getConfiguration('sftpfs.behavior.notification.upload');
+                    const sizeKB = notificationConfig.get('fileSize', 5120);
 
-                    if (fileSize > (1024) * (1024) * 1) {
+                    if (fileSize > (1024) * sizeKB) {
                         await vscode.window.withProgress({
                             cancellable: true,
                             location: vscode.ProgressLocation.Notification,
@@ -2132,7 +2139,10 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                     fileDecorationManager.getStatusBarItem().text = '$(cloud-download) ' + uri.path;
 
-                    if (fileSize > (1024) * (1024) * 1) {
+                    const notificationConfig = vscode.workspace.getConfiguration('sftpfs.behavior.notification.download');
+                    const sizeKB = notificationConfig.get('fileSize', 5120);
+
+                    if (fileSize > (1024) * sizeKB) {
                         // More than 1mb, do in progressive notification.
                         res = await vscode.window.withProgress({
                             cancellable: true,
@@ -2465,7 +2475,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         return res;
     }
 
-    sendUpdateForRootFolder(workspaceUri: vscode.Uri) {
+    sendUpdateForRootFolder() {
         setTimeout(async () => {
             await vscode.commands.executeCommand('workbench.files.action.refreshFilesExplorer');
         }, 1500);

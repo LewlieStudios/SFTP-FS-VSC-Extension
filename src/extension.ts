@@ -411,6 +411,9 @@ export async function activate(context: vscode.ExtensionContext) {
 				});
 				
 				vscode.window.showInformationMessage('Local version of file "' + upath.basename(uri.path) + '" removed.');
+
+				// Send a refresh for the explorer
+				provider.sendUpdateForRootFolder();
 			} catch(ex: any) {
 				logger.appendErrorToMessages('sftpfs.removeLocalFile', 'Failed due error:', ex);
 				vscode.window.showErrorMessage('Operation failed: ' + ex.message);
@@ -527,7 +530,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					if (workspace.uri.scheme === 'sftp') {
 						const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(workspace.uri.authority);
 						if (provider !== undefined) {
-							provider.sendUpdateForRootFolder(workspace.uri);
+							provider.sendUpdateForRootFolder();
 						}
 					}
 				}
