@@ -50,6 +50,8 @@ class Configuration {
     if (!(name in config)) {
       return undefined;
     }
+    console.warn(name);
+    console.warn(config);
     return config[name];
   }
 

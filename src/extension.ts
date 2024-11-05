@@ -1,12 +1,13 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
-import logger from './logger';
-import configuration from './configuration';
-import connectionManager from './connection-manager';
-import { SFTPFileSystemProvider } from './sftp-file-system';
+import logger from './logger.js';
+import configuration from './configuration.js';
+import connectionManager from './connection-manager.js';
+import { SFTPFileSystemProvider } from './sftp-file-system.js';
 import upath from 'upath';
-import fileDecorationManager from './file-decoration-manager';
+import fileDecorationManager from './file-decoration-manager.js';
+import os from 'os';
 
 const getOpen = async () => import('open');
 
@@ -21,7 +22,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	const provider = new SFTPFileSystemProvider();
 	context.subscriptions.push(
-			vscode.workspace.registerFileSystemProvider('sftp', provider, { isCaseSensitive: true })
+			vscode.workspace.registerFileSystemProvider(
+				'sftp', 
+				provider, 
+				{ 
+					isCaseSensitive: true
+				}
+			)
 	);
 
 	const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
@@ -129,7 +136,7 @@ export async function activate(context: vscode.ExtensionContext) {
 									.then(() => {
 										vscode.window.showInformationMessage('Remote "' + name + "' added.", "Open configuration").then((res) => {
 											if (res === "Open configuration") {
-												vscode.commands.executeCommand('workbench.action.openSettings', '@ext:wirlie.sftpfs');
+												vscode.commands.executeCommand('workbench.action.openSettings', '@ext:lewlie.sftpfs');
 											}
 										});
 									})
@@ -233,7 +240,8 @@ export async function activate(context: vscode.ExtensionContext) {
 							canSelectFolders: true,
 							canSelectMany: false,
 							title: 'Select a folder to sync remote files',
-							openLabel: 'Select'
+							openLabel: 'Select',
+							defaultUri: vscode.Uri.file(upath.join(os.homedir()))
 						});
 						if (dir === undefined || dir.length === 0) {
 							return;
@@ -329,6 +337,7 @@ export async function activate(context: vscode.ExtensionContext) {
 							// If connection is success, add workspace to project...
 							const removeLeadingSlash = (config.remotePath ?? '/').replace(/^\/+/, '');
 							const virtualFolderUri = vscode.Uri.parse('sftp://' + remoteName + '/' + removeLeadingSlash);
+							console.warn(virtualFolderUri);
 							vscode.workspace.updateWorkspaceFolders(
 									vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders.length : 0,
 									null,
@@ -349,7 +358,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			try {
 				logger.appendLineToMessages("Show in system explorer for file, scheme=" + uri.scheme + ", authority=" + uri.authority + ", path=" + uri.path);
 
-				const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(uri.authority);
+				const provider = SFTPFileSystemProvider.instance;
 				if (provider === undefined) {
 					logger.appendLineToMessages('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
@@ -357,7 +366,10 @@ export async function activate(context: vscode.ExtensionContext) {
 				}
 
 				var statFile = await provider.stat(uri);
-				const calculatedLocalFile = provider.workDirPath.with({ path: upath.join(provider.workDirPath.fsPath, uri.path) });
+
+				const remoteName = provider.getRemoteName(uri);
+				const workDirPath = provider.getSystemProviderData(remoteName)!.workDirPath;
+				const calculatedLocalFile = workDirPath.with({ path: upath.join(workDirPath.fsPath, uri.path) });
 
 				if (statFile.type === vscode.FileType.Directory) {
 					// is a directory, so at least we should make the directory local.
@@ -394,7 +406,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.removeLocalFile', async (uri: vscode.Uri) => {
 			try {
-				const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(uri.authority);
+				const provider = SFTPFileSystemProvider.instance;
 				if (provider === undefined) {
 					logger.appendLineToMessages('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
@@ -406,7 +418,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					location: vscode.ProgressLocation.Notification,
 					title: 'Deleting files...'
 				}, async (progress, token) => {
-					await provider.removeLocalFile(uri, token);
+					await provider.removeLocalFile(provider.getRemoteName(uri), uri, token);
 					await closeEditorByUri(uri);
 				});
 				
@@ -424,7 +436,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.uploadLocalFolder', async (uri: vscode.Uri) => {
 			try {
-				const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(uri.authority);
+				const provider = SFTPFileSystemProvider.instance;
 				if (provider === undefined) {
 					logger.appendLineToMessages('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
@@ -452,7 +464,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.downloadRemoteFolder', async (uri: vscode.Uri) => {
 			try {
-				const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(uri.authority);
+				const provider = SFTPFileSystemProvider.instance;
 				if (provider === undefined) {
 					logger.appendLineToMessages('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
@@ -482,7 +494,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('sftpfs.refreshRemoteFolder', async (uri: vscode.Uri) => {
 			// Resync in both directions
 			try {
-				const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(uri.authority);
+				const provider = SFTPFileSystemProvider.instance;
 				if (provider === undefined) {
 					logger.appendLineToMessages('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
@@ -528,7 +540,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			if (vscode.workspace.workspaceFolders !== undefined) {
 				for (const workspace of vscode.workspace.workspaceFolders) {
 					if (workspace.uri.scheme === 'sftp') {
-						const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(workspace.uri.authority);
+						const provider = SFTPFileSystemProvider.instance;
 						if (provider !== undefined) {
 							provider.sendUpdateForRootFolder();
 						}
@@ -572,7 +584,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						}
 					}
 					if (found) {
-						const provider = SFTPFileSystemProvider.sftpFileProvidersByRemotes.get(uri.authority);
+						const provider = SFTPFileSystemProvider.instance;
 						if (provider !== undefined) {
 							await provider.dispose();
 						}
@@ -601,10 +613,9 @@ export async function deactivate() {
 	console.log('Extension deactivated');
 	await connectionManager.destroyAll();
 
-	SFTPFileSystemProvider.sftpFileProvidersByRemotes.forEach((v) => {
-		console.log('Disposing file system provider...');
-		v.dispose();
-	});
+	const provider = SFTPFileSystemProvider.instance;
+	console.log('Disposing file system provider...');
+	provider?.dispose();
 }
 
 async function closeEditorByUri(uri: vscode.Uri) {

@@ -1,8 +1,8 @@
 import Client from 'ssh2-sftp-client';
 import { SFTPWrapper } from 'ssh2';
-import { RemoteConfiguration } from './configuration';
+import { RemoteConfiguration } from './configuration.js';
 import { Pool, PoolFactory } from 'lightning-pool';
-import logger from './logger';
+import logger from './logger.js';
 import { workspace } from 'vscode';
 
 export class ConnectionManager {
@@ -222,6 +222,9 @@ export class ResourcedPool {
     logger.appendLineToMessages('[pool-config] passive.minIdle = ' + passiveMinIdle);
     logger.appendLineToMessages('[pool-config] passive.maxQueue = ' + passiveMaxQueue);
     logger.appendLineToMessages('[pool-config] passive.idleTimeoutMillis = ' + passiveIdleTimeoutMillis);
+    logger.appendLineToMessages('[pool-config] targetHost = ' + this.configuration.host);
+    logger.appendLineToMessages('[pool-config] targetPort = ' + this.configuration.port);
+    logger.appendLineToMessages('[pool-config] targetUser = ' + this.configuration.username);
 
     this.heavyPool = new Pool(this.heavyFactory, {  
       max: heavyMax,    // maximum size of the pool

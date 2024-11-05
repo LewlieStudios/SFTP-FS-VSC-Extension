@@ -3,7 +3,7 @@
   "displayName": "SFTP FS",
   "description": "An extension that provides a file manager for the SFTP protocol, designed with parallel operations and speed in mind.",
   "version": "1.0.0",
-  "publisher": "wirlie",
+  "publisher": "lewlie",
   "author": {
     "name": "wirlie",
     "url": "https://wirlie.net"
@@ -370,5 +370,10 @@
     "ssh2-sftp-client": "^11.0.0",
     "upath": "^2.0.1",
     "uuid": "^11.0.2"
-  }
+  },
+  "type": "commonjs",
+  "icon": "icon.png",
+  "pricing": "Free",
+  "badges": [
+  ]
 }

@@ -1,75 +1,81 @@
 import * as vscode from 'vscode';
-import logger from './logger';
-import configuration, { RemoteConfiguration } from './configuration';
-import connectionManager, { ConnectionProvider, PoolType } from './connection-manager';
+import logger from './logger.js';
+import configuration, { RemoteConfiguration } from './configuration.js';
+import connectionManager, { ConnectionProvider, PoolType } from './connection-manager.js';
 import { FileEntryWithStats, SFTPWrapper, Stats } from 'ssh2';
 import upath from 'upath';
 import * as childProcess from 'child_process';
-import fileDecorationManager from './file-decoration-manager';
+import fileDecorationManager from './file-decoration-manager.js';
 import fs from 'fs';
 import { randomUUID, UUID } from 'crypto';
-import { report } from 'process';
 
 export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
-    static sftpFileProvidersByRemotes = new Map<string, SFTPFileSystemProvider>();
+    static instance: SFTPFileSystemProvider | undefined = undefined;
 
+    private sftpFileProvidersDataByRemotes = new Map<string, SFTPFileProviderData>();
 	private _bufferedEvents: vscode.FileChangeEvent[] = [];
 	private _fireSoonHandle?: NodeJS.Timeout;
     private readonly _emitter = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
     readonly onDidChangeFile: vscode.Event<vscode.FileChangeEvent[]> = this._emitter.event;
-
     private _watchLocks: Map<UUID, WatchLock> = new Map();
+    private isVCFocused = false;
+    watchLocksCleanupTask: NodeJS.Timeout;
 
-    remoteName!: string;
-    remoteConfiguration!: RemoteConfiguration;
-    workDirPath!: vscode.Uri;
-    //workDirName!: string;
-    workDirWatcher!: vscode.FileSystemWatcher;
-    setupDone = false;
-    isVCFocused = false;
-    watchLocksCleanupTask!: NodeJS.Timeout;
-
-    private async setupFileSystem(uri: vscode.Uri) {
-        if (this.setupDone) {
-            return;
-        }
-
-        this.setupDone = true;
+    constructor() {
+        SFTPFileSystemProvider.instance = this;
 
         this.watchLocksCleanupTask = setInterval(() => {
             // prune old locks
             this.pruneExpiredLocks();
         }, 1000);
 
-        SFTPFileSystemProvider.sftpFileProvidersByRemotes.set(uri.authority, this);
-        this.remoteName = uri.authority;
-        this.remoteConfiguration = await configuration.getRemoteConfiguration(this.remoteName) ?? {};
-        const current = (await configuration.getWorkDirForRemote(this.remoteName));
-        if (current === undefined) {
-            throw Error("Working directory not found for this SFTP file provider.");
-        }
-        this.workDirPath = vscode.Uri.file(current);
-        //this.workDirName = current.split('/').pop()!;
-
-        if(!connectionManager.poolExists(this.remoteName)) {
-            console.log('Creating connections pool!');
-            connectionManager.createPool({
-                configuration: this.remoteConfiguration,
-                remoteName: this.remoteName
-            });
-        }
-
         this.isVCFocused = vscode.window.state.focused;
         vscode.window.onDidChangeWindowState((state) => {
             this.isVCFocused = state.focused;
         });
+    }
+
+    getSystemProviderData(remoteName: string) {
+        return this.sftpFileProvidersDataByRemotes.get(remoteName);
+    }
+
+    getRemoteName(uri: vscode.Uri) {
+        if (uri.scheme !== 'sftp') {
+            throw Error('Expected sftp uri');
+        }
+
+        return uri.authority;
+    }
+
+    private async setupFileSystem(uri: vscode.Uri) {
+        if (this.getSystemProviderData(uri.authority) !== undefined) {
+            return;
+        }
+
+        const newData = new SFTPFileProviderData();
+        newData.setupDone = true;
+        newData.remoteName = uri.authority;
+        newData.remoteConfiguration = await configuration.getRemoteConfiguration(newData.remoteName) ?? {};
+        const current = (await configuration.getWorkDirForRemote(newData.remoteName));
+        if (current === undefined) {
+            throw Error("Working directory not found for this SFTP file provider.");
+        }
+        newData.workDirPath = vscode.Uri.file(current);
+        //this.workDirName = current.split('/').pop()!;
+        if(!connectionManager.poolExists(newData.remoteName)) {
+            console.log('Creating connections pool!');
+            connectionManager.createPool({
+                configuration: newData.remoteConfiguration,
+                remoteName: newData.remoteName
+            });
+        }
 
         console.log('Creating file watcher...');
-        this.workDirWatcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(this.workDirPath, '**/*')
+        newData.workDirWatcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(newData.workDirPath, '**/*')
         );
 
-        this.workDirWatcher.onDidCreate(async (uri) => {
+        newData.workDirWatcher.onDidCreate(async (uri) => {
             if (true) {
                 // Disabled for now, rework required.
                 return;
@@ -84,7 +90,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
             if (localStat.type === vscode.FileType.File) {
                 const relativePath = uri.path.replace(this.workDirPath.path, '');
-                const remotePath = vscode.Uri.parse('sftp://' + this.remoteName + '/' + this.workDirName + '' + relativePath);
+                const remotePath = vscode.Uri.parse('sftp://' + remoteName + '/' + this.workDirName + '' + relativePath);
                 console.log('[watcher-changes] File created outside VC: ' + uri.path + ', RelativePath: ' + relativePath);
                 console.log('[watcher-changes] Uploading to: ' + remotePath);
 
@@ -93,7 +99,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                 this._fireSoon({ type: vscode.FileChangeType.Created, uri: remotePath });
             } else if(localStat.type === vscode.FileType.Directory) {
                 const relativePath = uri.path.replace(this.workDirPath.path, '');
-                const remotePath = vscode.Uri.parse('sftp://' + this.remoteName + '/' + this.workDirName + '' + relativePath);
+                const remotePath = vscode.Uri.parse('sftp://' + remoteName + '/' + this.workDirName + '' + relativePath);
                 console.log('[watcher-changes] Folder created outside VC: ' + uri.path + ', RelativePath: ' + relativePath);
                 console.log('[watcher-changes] Creating folder to: ' + remotePath);
                 await this.createDirectory(remotePath);
@@ -102,7 +108,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
             */
         });
 
-        this.workDirWatcher.onDidDelete(async (uri) => {
+        newData.workDirWatcher.onDidDelete(async (uri) => {
             if (true) {
                 // Disabled for now, rework required.
                 return;
@@ -114,7 +120,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
             }
 
             const relativePath = uri.path.replace(this.workDirPath.path, '');
-            const remotePath = vscode.Uri.parse('sftp://' + this.remoteName + '/' + this.workDirName + '' + relativePath);
+            const remotePath = vscode.Uri.parse('sftp://' + remoteName + '/' + this.workDirName + '' + relativePath);
             console.log('[watcher-changes] File deleted outside VC: ' + uri.path + ', RelativePath: ' + relativePath);
             console.log('[watcher-changes] Deleting from: ' + remotePath);
 
@@ -123,7 +129,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
             */
         });
 
-        this.workDirWatcher.onDidChange(async (uri) => {
+        newData.workDirWatcher.onDidChange(async (uri) => {
             if (true) {
                 // Disabled for now, rework required.
                 return;
@@ -137,7 +143,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
             if (localStat.type === vscode.FileType.File) {
                 const relativePath = uri.path.replace(this.workDirPath.path, '');
-                const remotePath = vscode.Uri.parse('sftp://' + this.remoteName + '/' + this.workDirName + '' + relativePath);
+                const remotePath = vscode.Uri.parse('sftp://' + remoteName + '/' + this.workDirName + '' + relativePath);
                 console.log('[watcher-changes] File updated outside VC: ' + uri.path + ', RelativePath: ' + relativePath);
                 console.log('[watcher-changes] Uploading to: ' + remotePath);
 
@@ -154,6 +160,8 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
             }
             */
         });
+
+        this.sftpFileProvidersDataByRemotes.set(newData.remoteName, newData);
     }
 
     watch(uri: vscode.Uri, options: { recursive: boolean; excludes: string[] }): vscode.Disposable {
@@ -166,6 +174,8 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     $stat(uri: vscode.Uri, fallbackToLocalFile: boolean, connectionType: PoolType): Promise<vscode.FileStat> {
+        const remoteName = this.getRemoteName(uri);
+
         return new Promise(async (resolve, reject) => {
             if (uri.path === '/') {
                 resolve(
@@ -193,11 +203,11 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
             try {
                 await this.setupFileSystem(uri);
-                const connectionProvider = await this.getConnection(connectionType);
+                const connectionProvider = await this.getConnection(remoteName, connectionType);
                 const connection = connectionProvider?.getSFTP();
 
                 if (connection === undefined) {
-                    logger.appendLineToMessages('Error when stat file (' + this.remoteName + '): Connection lost.');
+                    logger.appendLineToMessages('Error when stat file (' + remoteName + '): Connection lost.');
                     vscode.window.showErrorMessage('Broken connection to SFTP server.');
                     return;
                 }
@@ -209,16 +219,16 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                         var isLocalOnly = false;
 
                         if (err) {
-                            await this.releaseConnection(connectionProvider);
+                            await this.releaseConnection(remoteName, connectionProvider);
 
                             if (err.code === ErrorCodes.FILE_NOT_FOUND && fallbackToLocalFile) {
                                 // If not exists probably it is a local file that is still not uploaded to remote...
-                                const localUri = this.getLocalFileUri(uri);
+                                const localUri = this.getLocalFileUri(remoteName, uri);
                                 const localStats = await this.statLocalFileByUri(localUri);
 
                                 if (localStats === undefined) {
                                     // Okay, definitively it do not exists.
-                                    logger.appendLineToMessages('File not found when stat file (' + this.remoteName + '): ' + uri.path);
+                                    logger.appendLineToMessages('File not found when stat file (' + remoteName + '): ' + uri.path);
                                     reject(vscode.FileSystemError.FileNotFound(uri));
                                     return;
                                 } else {
@@ -241,7 +251,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             if (fileType === vscode.FileType.SymbolicLink) {
                                 if (isLocalOnly) {
                                     // TODO: Must follow symbolic link for local??
-                                    await this.releaseConnection(connectionProvider);
+                                    await this.releaseConnection(remoteName, connectionProvider);
                                     reject(vscode.FileSystemError.FileNotFound(uri));
                                     return;
                                 }
@@ -254,7 +264,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             if (isLocalOnly) {
                                 fileDecorationManager.setLocalNewFileDecoration(uri);
                             } else {
-                                var calculatedLocalFile = this.getLocalFileUri(uri);
+                                var calculatedLocalFile = this.getLocalFileUri(remoteName, uri);
                                 const lock = this.addWatchLockFromLocalUri(calculatedLocalFile);
 
                                 try {
@@ -282,7 +292,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                 }
                             }
 
-                            await this.releaseConnection(connectionProvider);
+                            await this.releaseConnection(remoteName, connectionProvider);
                             resolve({
                                 type: fileType,
                                 ctime: 0,
@@ -290,17 +300,17 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                 size: fileStats.size
                             });
                         } catch(ex: any) {
-                            await this.releaseConnection(connectionProvider);
+                            await this.releaseConnection(remoteName, connectionProvider);
                             reject(ex);
                         }
                     });
                 } catch(error: any) {
-                    await this.releaseConnection(connectionProvider);
+                    await this.releaseConnection(remoteName, connectionProvider);
                     if (error.code === ErrorCodes.FILE_NOT_FOUND) {
-                        logger.appendErrorToMessages('$stat', 'File not found when stat file (' + this.remoteName + '): ' + uri.path, error);
+                        logger.appendErrorToMessages('$stat', 'File not found when stat file (' + remoteName + '): ' + uri.path, error);
                         reject(vscode.FileSystemError.FileNotFound(uri));
                     } else {
-                        logger.appendErrorToMessages('$stat', 'Error when stat file (' + this.remoteName + '): ' + uri.path, error);
+                        logger.appendErrorToMessages('$stat', 'Error when stat file (' + remoteName + '): ' + uri.path, error);
                         vscode.window.showErrorMessage(error.message);
                         reject(error);
                     }
@@ -312,9 +322,12 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     async readDirectory(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
+        const remoteName = this.getRemoteName(uri);
+
         return new Promise(async (resolve, reject) => {
             try {
                 await this.setupFileSystem(uri);
+                const workDirPath = this.getSystemProviderData(remoteName)!.workDirPath;
 
                 if (uri.path.startsWith('/.vscode')) {
                     resolve(
@@ -332,7 +345,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                 logger.appendLineToMessages('[read-dir] ' + uri.path);
 
-                const connectionProvider = await this.getConnection('passive');
+                const connectionProvider = await this.getConnection(remoteName, 'passive');
                 const connection = connectionProvider?.getSFTP();
                 if (connection === undefined) {
                     throw Error('Broken connection to SFTP server.');
@@ -341,7 +354,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                 // Resolve local files...
                 const result: [string, vscode.FileType][] = [];
                 const listLocalFunc = async (stats: FileEntryWithStats[] | undefined) => {
-                    const localUri = this.getLocalFileUri(uri);
+                    const localUri = this.getLocalFileUri(remoteName, uri);
                     const localStats = await this.statLocalFileByUri(localUri);
 
                     if (localStats !== undefined && localStats.type === vscode.FileType.Directory) {
@@ -364,7 +377,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                 // Local file
                                 result.push(local);
                                 const entryLocalUri = localUri.with({ path: upath.join(localUri.path, local[0])});
-                                const remoteLocalUri = this.getRemoteFileUri(entryLocalUri);
+                                const remoteLocalUri = this.getRemoteFileUri(remoteName, entryLocalUri);
                                 fileDecorationManager.setLocalUploadFileDecoration(remoteLocalUri);
                             }
                         });
@@ -373,7 +386,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                 connection.readdir(uri.path, async (err: any, stats) => {
                     if(err) {
-                        await this.releaseConnection(connectionProvider);
+                        await this.releaseConnection(remoteName, connectionProvider);
                         await listLocalFunc(undefined);
                         resolve(result);
                         return;
@@ -392,7 +405,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             result.push([entry.filename, fileType]);
 
                             // Determine if there is a local version of this file.
-                            var calculatedLocalFile = this.workDirPath.with({ path: upath.join(this.workDirPath.fsPath, upath.join(uri.path, entry.filename)) });
+                            var calculatedLocalFile = workDirPath.with({ path: upath.join(workDirPath.fsPath, upath.join(uri.path, entry.filename)) });
                             const localFileStat = await this.statLocalFileByUri(calculatedLocalFile);
                             if (localFileStat === undefined) {
                                 fileDecorationManager.setRemoteFileDecoration(uri.with({ path: upath.join(uri.path, entry.filename) }));
@@ -415,15 +428,15 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                         }
 
                         await listLocalFunc(stats);
-                        await this.releaseConnection(connectionProvider);
+                        await this.releaseConnection(remoteName, connectionProvider);
                         resolve(result);
                     } catch(ex: any) {
-                        await this.releaseConnection(connectionProvider);
+                        await this.releaseConnection(remoteName, connectionProvider);
                         reject(ex);
                     }
                 });
             } catch(ex: any) {
-                logger.appendLineToMessages('Cannot read directory (' + this.remoteName + '): ' + ex.message);
+                logger.appendLineToMessages('Cannot read directory (' + remoteName + '): ' + ex.message);
                 vscode.window.showErrorMessage(ex.message);
                 reject(ex);
             }
@@ -431,6 +444,8 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     async readFile(uri: vscode.Uri): Promise<Uint8Array> {
+        const remoteName = this.getRemoteName(uri);
+
         return new Promise(async (resolve, reject) => {
             try {
                 await this.setupFileSystem(uri);
@@ -453,7 +468,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                 const data = await this.downloadRemoteFileToLocalIfNeeded(uri, true, 'passive');
                 resolve(data!);
             } catch(ex: any) {
-                logger.appendLineToMessages('Cannot read file (' + this.remoteName + '): ' + ex.message);
+                logger.appendLineToMessages('Cannot read file (' + remoteName + '): ' + ex.message);
                 vscode.window.showErrorMessage(ex.message);
                 reject(ex);
             }
@@ -461,9 +476,10 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     writeFile(uri: vscode.Uri, content: Uint8Array, options: { readonly create: boolean; readonly overwrite: boolean; }): Promise<void> {
+        const remoteName = this.getRemoteName(uri);
         return new Promise( async (resolve, reject) => {
             await this.setupFileSystem(uri);
-            const connectionProvider = await this.getConnection('passive');
+            const connectionProvider = await this.getConnection(remoteName, 'passive');
             const connection = connectionProvider?.getSFTP();
             if (connection === undefined) {
                 reject(Error('[write-file] SFTP connection lost'));
@@ -471,7 +487,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
             }
 
             // First, try to know if the file exists at server side.
-            const localPath = this.getLocalFileUri(uri);
+            const localPath = this.getLocalFileUri(remoteName, uri);
             const lock = this.addWatchLockFromLocalUri(localPath);
 
             // Prevent expiration, because all operations involved in this logic can took long time to complete...
@@ -483,13 +499,13 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                         if (err.code === ErrorCodes.FILE_NOT_FOUND) {
                             // File not found and we will not try to create the file.
                             if (!options.create) {
-                                this.releaseConnection(connectionProvider);
+                                this.releaseConnection(remoteName, connectionProvider);
                                 this.removeWatchLock(lock);
                                 reject(vscode.FileSystemError.FileNotFound(uri));
                                 return;
                             }
                         } else {
-                            this.releaseConnection(connectionProvider);
+                            this.releaseConnection(remoteName, connectionProvider);
                             this.removeWatchLock(lock);
                             logger.appendErrorToMessages('writeFile', 'Failed to lstat remote file:' + uri.path, err);
                             reject(err);
@@ -498,7 +514,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     } else {
                         // If file exists, and we will no try to overwrite
                         if(!options.overwrite) {
-                            this.releaseConnection(connectionProvider);
+                            this.releaseConnection(remoteName, connectionProvider);
                             this.removeWatchLock(lock);
                             reject(vscode.FileSystemError.FileExists(uri));
                             logger.appendErrorToMessages('writeFile', 'Failed write file, file exists and overwrite is false:' + uri.path, err);
@@ -507,7 +523,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                         // We will not try to write in symbolic links...
                         if(stats.isSymbolicLink()) {
-                            this.releaseConnection(connectionProvider);
+                            this.releaseConnection(remoteName, connectionProvider);
                             this.removeWatchLock(lock);
                             reject(Error('Cannot write content, remote file is a symbolic link.'));
                             logger.appendErrorToMessages('writeFile', 'Failed write file, remote file is a symbolic link:' + uri.path, err);
@@ -516,7 +532,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                         // We will not try to write in directories...
                         if(!stats.isFile()) {
-                            this.releaseConnection(connectionProvider);
+                            this.releaseConnection(remoteName, connectionProvider);
                             this.removeWatchLock(lock);
                             reject(Error('Cannot write content, remote file is a directory.'));
                             logger.appendErrorToMessages('writeFile', 'Failed write file, remote file is a directory:' + uri.path, err);
@@ -529,7 +545,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     var statLocal = await this.statLocalFileByUri(localPath);
 
                     if (statLocal !== undefined && statLocal.type !== vscode.FileType.File) {
-                        this.releaseConnection(connectionProvider);
+                        this.releaseConnection(remoteName, connectionProvider);
                         this.removeWatchLock(lock);
                         logger.appendLineToMessages('[write-file] Local file exists but is not a File: ' + localPath.fsPath);
                         reject(Error('Local file expected to be a file, but it was a directory, file location: ' + localPath.fsPath));
@@ -548,7 +564,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             logger.appendLineToMessages('[write-file] Created local dir ' + parentDirectory.fsPath);
                         }
                     } catch(ex: any) {
-                        this.releaseConnection(connectionProvider);
+                        this.releaseConnection(remoteName, connectionProvider);
                         logger.appendErrorToMessages('writeFile', 'Failed to create local dir ' + parentDirectory.fsPath + ': ', ex);
                         reject(ex);
                         return;
@@ -605,7 +621,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             // No error expected at this point, but since we only need stats at this point to adjust the mtime of local file
                             // then we will simply discard this error and print in the logs.
                             logger.appendErrorToMessages('writeFile', 'Something went wrong while reading lstat of remote file: ' + uri.path, err);
-                            this.releaseConnection(connectionProvider);
+                            this.releaseConnection(remoteName, connectionProvider);
                             this.removeWatchLock(lock);
                             this.removeWatchLock(lock2);
                             this._fireSoon({ type: vscode.FileChangeType.Changed, uri });
@@ -620,7 +636,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                     logger.appendErrorToMessages('writeFile', ' Something went wrong while updating mtime of local file: ' + localPath.fsPath, err);
                                 }
 
-                                this.releaseConnection(connectionProvider);
+                                this.releaseConnection(remoteName, connectionProvider);
                                 this.removeWatchLock(lock);
                                 this.removeWatchLock(lock2);
                                 this._fireSoon({ type: vscode.FileChangeType.Changed, uri });
@@ -628,7 +644,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             });
                             fileDecorationManager.setUpToDateFileDecoration(uri);
                         } catch(ex: any) {
-                            this.releaseConnection(connectionProvider);
+                            this.releaseConnection(remoteName, connectionProvider);
                             this.removeWatchLock(lock);
                             this.removeWatchLock(lock2);
                             logger.appendErrorToMessages('writeFile', 'Something went wrong for write operation: ' + uri.path, ex);
@@ -636,7 +652,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                         }
                     });
                 } catch(ex: any) {
-                    this.releaseConnection(connectionProvider);
+                    this.releaseConnection(remoteName, connectionProvider);
                     this.removeWatchLock(lock);
                     logger.appendErrorToMessages('writeFIle', 'Something went wrong for write operation: ' + uri.path, ex);
                     reject(ex);
@@ -646,6 +662,8 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     async createDirectory(uri: vscode.Uri): Promise<void> {
+        const remoteName = this.getRemoteName(uri);
+
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             cancellable: false,
@@ -653,7 +671,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         }, () => {
             return new Promise<void>(async (resolve, reject) => {
                 await this.setupFileSystem(uri);
-                const connectionProvider = await this.getConnection('passive');
+                const connectionProvider = await this.getConnection(remoteName, 'passive');
                 const connection = connectionProvider?.getSFTP();
                 if (connection === undefined) {
                     reject(Error('Connection to SFTP lost.'));
@@ -663,14 +681,14 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                 logger.appendLineToMessages('[create dir] ' + uri.path);
                 connection.mkdir(uri.path, async (err) => {
                   if (err) {
-                    this.releaseConnection(connectionProvider);
+                    this.releaseConnection(remoteName, connectionProvider);
                     logger.appendErrorToMessages('writeFIle', 'Failed to create remote directory: ' + uri.path, err);
                     return reject(err);
                   }
-                  this.releaseConnection(connectionProvider);
+                  this.releaseConnection(remoteName, connectionProvider);
     
                   // Create local directory
-                  const localPath = this.getLocalFileUri(uri);
+                  const localPath = this.getLocalFileUri(remoteName, uri);
     
                   const lock = this.addWatchLockFromLocalUri(localPath);
                   try {
@@ -691,9 +709,10 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     async delete(uri: vscode.Uri, options: { readonly recursive: boolean; }): Promise<void> {
+        const remoteName = this.getRemoteName(uri);
         await this.setupFileSystem(uri);
 
-        const connectionProvider = await this.getConnection('heavy');
+        const connectionProvider = await this.getConnection(remoteName, 'heavy');
         const connection = connectionProvider?.getSFTP();
         if (connection === undefined) {
             throw Error('Connection to SFTP server lost.');
@@ -729,15 +748,17 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                 { uri, type: vscode.FileChangeType.Deleted }
             );
 
-            await this.releaseConnection(connectionProvider);
+            await this.releaseConnection(remoteName, connectionProvider);
         } catch(ex: any) {
             logger.appendErrorToMessages('delete', 'Something went wrong for delete operation: ' + uri.path, ex);
-            await this.releaseConnection(connectionProvider);
+            await this.releaseConnection(remoteName, connectionProvider);
             throw ex;
         }
     }
 
     private deleteFile(uri: vscode.Uri, connection: SFTPWrapper, token: vscode.CancellationToken | undefined) {
+        const remoteName = this.getRemoteName(uri);
+
         return new Promise<void>((resolve, reject) => {
             if (token?.isCancellationRequested) {
                 reject(Error('Deleting task cancelled by user.'));
@@ -753,7 +774,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                 }
 
                 // Delete local file...
-                const localPath = this.getLocalFileUri(uri);
+                const localPath = this.getLocalFileUri(remoteName, uri);
                 const lock = this.addWatchLockFromLocalUri(localPath);
                 try {
                     await vscode.workspace.fs.delete(localPath, { recursive: true, useTrash: false });
@@ -769,6 +790,8 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     private deleteDirectory(uri: vscode.Uri, recursive: boolean, client: SFTPWrapper, token: vscode.CancellationToken | undefined) {
+        const remoteName = this.getRemoteName(uri);
+
         return new Promise<void>((resolve, reject) => {
             if (token?.isCancellationRequested) {
                 reject(Error('Deleting task cancelled by user.'));
@@ -786,7 +809,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     }
 
                     // Delete local directory...
-                    const localPath = this.getLocalFileUri(uri);
+                    const localPath = this.getLocalFileUri(remoteName, uri);
                     const lock = this.addWatchLockFromLocalUri(localPath);
                     try {
                         await vscode.workspace.fs.delete(localPath, { recursive: true, useTrash: false });
@@ -834,9 +857,11 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     rename(oldUri: vscode.Uri, newUri: vscode.Uri, options: { readonly overwrite: boolean; }): Promise<void> {
+        const remoteName = this.getRemoteName(oldUri);
+
         return new Promise(async (resolve, reject) => {
             await this.setupFileSystem(oldUri);
-            const connectionProvider = await this.getConnection('passive');
+            const connectionProvider = await this.getConnection(remoteName, 'passive');
             const connection = connectionProvider?.getSFTP();
             if (connection === undefined) {
                 reject(Error('Connection to SFTP server lost.'));
@@ -854,13 +879,13 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                         // Okay, old uri is local only
                         isOldLocal = true;
                     } else {
-                        this.releaseConnection(connectionProvider);
+                        this.releaseConnection(remoteName, connectionProvider);
                         logger.appendErrorToMessages('rename', 'Failed to stat remote oldUri: ' + oldUri.path, ex);
                         reject(ex);
                         return;
                     }
                 } else {
-                    this.releaseConnection(connectionProvider);
+                    this.releaseConnection(remoteName, connectionProvider);
                     logger.appendErrorToMessages('rename', 'Failed to stat remote oldUri: ' + oldUri.path, ex);
                     reject(ex);
                     return;
@@ -880,12 +905,12 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                 targetExistsRemote = false;
                             } else {
                                 logger.appendErrorToMessages('rename', 'Failed to stat remote newUri: ' + newUri.path, ex);
-                                this.releaseConnection(connectionProvider);
+                                this.releaseConnection(remoteName, connectionProvider);
                                 reject(ex);
                                 return;
                             }
                         } else {
-                            this.releaseConnection(connectionProvider);
+                            this.releaseConnection(remoteName, connectionProvider);
                             reject(ex);
                             return;
                         }
@@ -893,7 +918,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                     if (targetExistsRemote) {
                         // Cannot rename!
-                        this.releaseConnection(connectionProvider);
+                        this.releaseConnection(remoteName, connectionProvider);
                         const error = Error('Unable to rename, file "' + (newUri.path) + '" exists on remote server, remove remote file first.');
                         logger.appendErrorToMessages('rename', 'Failed to make operation, remote file exists: ' + newUri.path, error);
                         reject(error);
@@ -902,8 +927,8 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     
                     // Rename on local...
                     await vscode.workspace.fs.rename(
-                        this.getLocalFileUri(oldUri),
-                        this.getLocalFileUri(newUri)
+                        this.getLocalFileUri(remoteName, oldUri),
+                        this.getLocalFileUri(remoteName, newUri)
                     );
                     resolve();
                 } catch(ex: any) {
@@ -917,16 +942,16 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
             connection.rename(oldUri.path, newUri.path, async (err) => {
                 if (err) {
                     logger.appendErrorToMessages('rename', 'Failed to make operation, remote error: oldUri = ' + oldUri.path + ', newUri = ' + newUri.path, err);
-                    this.releaseConnection(connectionProvider);
+                    this.releaseConnection(remoteName, connectionProvider);
                     reject(err);
                     return;
                 }
 
-                this.releaseConnection(connectionProvider);
+                this.releaseConnection(remoteName, connectionProvider);
 
                 // Rename local file too...
-                const oldLocalUri = this.getLocalFileUri(oldUri);
-                const newLocalUri = this.getLocalFileUri(newUri);
+                const oldLocalUri = this.getLocalFileUri(remoteName, oldUri);
+                const newLocalUri = this.getLocalFileUri(remoteName, newUri);
 
                 const lock1 = this.addWatchLockFromLocalUri(oldLocalUri);
                 const lock2 = this.addWatchLockFromLocalUri(newLocalUri);
@@ -980,24 +1005,25 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     async followSymbolicLinkAndGetRealPath(uri: vscode.Uri, connectionSFTP: SFTPWrapper | undefined = undefined): Promise<vscode.Uri> {
         var connection = connectionSFTP;
         var connectionProvider: ConnectionProvider | undefined = undefined;
+        const remoteName = this.getRemoteName(uri);
 
         if (connection === undefined) {
-            connectionProvider = await this.getConnection('heavy');
+            connectionProvider = await this.getConnection(remoteName, 'heavy');
             connection = connectionProvider?.getSFTP();
         }
 
         if (connection === undefined) {
-            logger.appendLineToMessages('Error when stat file (' + this.remoteName + '): Connection lost.');
+            logger.appendLineToMessages('Error when stat file (' + remoteName + '): Connection lost.');
             vscode.window.showErrorMessage('Broken connection to SFTP server.');
             throw (Error('Broken connection to SFTP server.'));
         }
 
         try {
-            await this.releaseConnection(connectionProvider);
+            await this.releaseConnection(remoteName, connectionProvider);
             return await this.asyncFollowSymbolicLinkAndGetRealPath(connection, uri);
         } catch(ex: any) {
             logger.appendErrorToMessages('followSymbolicLinkAndGetRealPath', 'Failed to follow symbolic link: ' + uri.path, ex);
-            await this.releaseConnection(connectionProvider);
+            await this.releaseConnection(remoteName, connectionProvider);
             throw ex;
         }
     }
@@ -1103,11 +1129,13 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     private syncedProgress = 0.0;
 
     async syncRemoteFolderWithLocal(uri: vscode.Uri, progress: vscode.Progress<{ message?: string; increment?: number; }>, token: vscode.CancellationToken): Promise<void> {
+        const remoteName = this.getRemoteName(uri);
+
         return new Promise(async (resolve, reject) => {
             try {
                 logger.appendLineToMessages('[sync-files] ' + uri.path);
 
-                const connectionProvider = await this.getConnection('heavy');
+                const connectionProvider = await this.getConnection(remoteName, 'heavy');
                 const connection = connectionProvider?.getSFTP();
                 if (connection === undefined) {
                     reject(Error('Broken connection to SFTP server.'));
@@ -1116,7 +1144,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                 connection.lstat(uri.path, async(error, remoteStat) => {
                     try {
-                        await this.releaseConnection(connectionProvider);
+                        await this.releaseConnection(remoteName, connectionProvider);
 
                         if (error) {
                             logger.appendErrorToMessages('syncRemoteFolderWithLocal', 'Failed to lstat remote file: ' + uri.fsPath, error);
@@ -1131,7 +1159,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                         }
 
                         // First, list local files
-                        const localUri = this.getLocalFileUri(uri);
+                        const localUri = this.getLocalFileUri(remoteName, uri);
                         const localFiles = await this.listLocalFolder(localUri, token);
 
                         // Next, list remote files
@@ -1141,7 +1169,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                         // If remote file is newer than our copy, remote file will be downloaded.
                         // If our local file is newer than remote file, local file will be uploaded.
                         // If both files has the same size and mtime, then nothing is done.
-                        var operationsToPerform = await this.createOperationListForBothSync(localFiles, remoteFiles, progress);
+                        var operationsToPerform = await this.createOperationListForBothSync(remoteName, localFiles, remoteFiles, progress);
 
                         // Ask user if proceed...
                         const totalUpload = operationsToPerform.filter((o) => o[1] === 'UPLOAD_LOCAL').length;
@@ -1186,8 +1214,8 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                 new Promise(async (resolve, reject) => {
                                     try {
                                         if (operation === 'UPLOAD_LOCAL') {
-                                            const localPath = this.getLocalFileUri(uri);
-                                            await this.uploadLocalFileToRemoteIfNeeded(localPath, 'heavy', token, () => {
+                                            const localPath = this.getLocalFileUri(remoteName, uri);
+                                            await this.uploadLocalFileToRemoteIfNeeded(remoteName, localPath, 'heavy', token, () => {
                                                 progress.report({ increment: 0, message: '(' + this.syncedCount + ' of ' + this.syncCount + '): ' + uri.path });
                                             });
                                             fileDecorationManager.setUpToDateFileDecoration(uri);
@@ -1232,6 +1260,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     private async createOperationListForBothSync(
+        remoteName: string,
         localFiles: [vscode.Uri, vscode.FileType][], 
         remoteFiles: [vscode.Uri, vscode.FileType][],
         progress: vscode.Progress<{ message?: string; increment?: number; }>
@@ -1257,7 +1286,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             try {
                                 if (remoteType === vscode.FileType.File) {
                                     // Try to find the local counterpart.
-                                    const localUri = this.getLocalFileUri(remoteUri);
+                                    const localUri = this.getLocalFileUri(remoteName, remoteUri);
                                     const localStats = await this.statLocalFileByUri(localUri);
 
                                     processedLocalList.push(localUri);
@@ -1320,10 +1349,10 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                     if (found === true) {
                         logger.appendLineToMessages('[operations-sync] Local file already processed in remote list, resolution DISCARD: ' + localUri.path);
-                        break;
+                        continue;
                     }
 
-                    const remoteUri = this.getRemoteFileUri(localUri);
+                    const remoteUri = this.getRemoteFileUri(remoteName, localUri);
 
                     // Then, upload is required because the counterpart is not present.
                     logger.appendLineToMessages('[operations-sync] Remote file is not present, resolution UPLOAD: ' + remoteUri.path);
@@ -1343,10 +1372,12 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     async uploadRemoteFolderFromLocal(uri: vscode.Uri, progress: vscode.Progress<{ message?: string; increment?: number; }>, token: vscode.CancellationToken): Promise<void> {
+        const remoteName = this.getRemoteName(uri);
+
         return new Promise(async (resolve, reject) => {
             logger.appendLineToMessages('[read-file] ' + uri.path);
 
-            const connectionProvider = await this.getConnection('heavy');
+            const connectionProvider = await this.getConnection(remoteName, 'heavy');
             const connection = connectionProvider?.getSFTP();
             if (connection === undefined) {
                 reject(Error('Broken connection to SFTP server.'));
@@ -1354,7 +1385,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
             }
 
             connection.lstat(uri.path, async(error, remoteStat) => {
-                await this.releaseConnection(connectionProvider);
+                await this.releaseConnection(remoteName, connectionProvider);
 
                 if (error) {
                     logger.appendErrorToMessages('uploadRemoteFolderFromLocal', 'Failed to lstat remote: ' + uri.path, error);
@@ -1369,7 +1400,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                 }
 
                 // First, list all files.
-                const localUri = this.getLocalFileUri(uri);
+                const localUri = this.getLocalFileUri(remoteName, uri);
                 const files = await this.listLocalFolder(localUri, token);
 
                 if (files.length === 0) {
@@ -1398,7 +1429,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                 // Upload download process...
                 try {
-                    await this.uploadAllFiles(files, progress, token);
+                    await this.uploadAllFiles(remoteName, files, progress, token);
                     resolve();
                 } catch(ex: any) {
                     logger.appendErrorToMessages('uploadRemoteFolderFromLocal', 'Something went wrong while doing updateAll operation: ' + uri.path, ex);
@@ -1409,10 +1440,12 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     async downloadRemoteFolderToLocal(uri: vscode.Uri, progress: vscode.Progress<{ message?: string; increment?: number; }>, token: vscode.CancellationToken): Promise<void> {
+        const remoteName = this.getRemoteName(uri);
+
         return new Promise(async (resolve, reject) => {
             logger.appendLineToMessages('[read-file] ' + uri.path);
 
-            const connectionProvider = await this.getConnection('heavy');
+            const connectionProvider = await this.getConnection(remoteName, 'heavy');
             const connection = connectionProvider?.getSFTP();
             if (connection === undefined) {
                 reject(Error('Broken connection to SFTP server.'));
@@ -1420,7 +1453,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
             }
 
             connection.lstat(uri.path, async(error, remoteStat) => {
-                await this.releaseConnection(connectionProvider);
+                await this.releaseConnection(remoteName, connectionProvider);
 
                 if (error) {
                     logger.appendErrorToMessages('uploadRemoteFolderFromLocal', 'Failed to lstat remote file: ' + uri.path, error);
@@ -1553,13 +1586,15 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     private async listRemoteFolder(uri: vscode.Uri,  token: vscode.CancellationToken): Promise<[vscode.Uri, vscode.FileType][]> {
+        const remoteName = this.getRemoteName(uri);
+
         return new Promise(async (resolve, reject) => {
             if (token.isCancellationRequested) {
                 reject(Error('Operation cancelled by user'));
                 return;
             }
             
-            const connectionProvider = await this.getConnection('heavy');
+            const connectionProvider = await this.getConnection(remoteName, 'heavy');
             const connection = connectionProvider?.getSFTP();
             if (connection === undefined) {
                 reject(Error('Broken connection to SFTP server.'));
@@ -1570,7 +1605,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
             logger.appendLineToMessages('[download-from-remote] Listing dir: ' + uri.path);
             fileDecorationManager.getStatusBarItem().text = '$(search) Listing ' + uri.path;
             connection.readdir(uri.path, async (err, entries) => {
-                this.releaseConnection(connectionProvider);
+                this.releaseConnection(remoteName, connectionProvider);
 
                 if (err) {
                     logger.appendErrorToMessages('listRemoteFolder', 'Failed to readdir: ' + uri.path, err);
@@ -1643,7 +1678,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         });
     }
 
-    private async uploadAllFiles(filesWithUri: [vscode.Uri, vscode.FileType][], progress: vscode.Progress<{ message?: string; increment?: number; }>, token: vscode.CancellationToken): Promise<void> {
+    private async uploadAllFiles(remoteName: string, filesWithUri: [vscode.Uri, vscode.FileType][], progress: vscode.Progress<{ message?: string; increment?: number; }>, token: vscode.CancellationToken): Promise<void> {
         // Expected that uri is already verified as Directory.
         return new Promise(async (resolve, reject) => {
             if (token.isCancellationRequested) {
@@ -1674,8 +1709,8 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                 if (fileType === vscode.FileType.File) {
                                     logger.appendLineToMessages('[upload-from-local] Uploading file: ' + localPath.path);
                                     // In case of file, upload it
-                                    await this.uploadLocalFileToRemoteIfNeeded(localPath, 'heavy', token);
-                                    const remotePath = this.getRemoteFileUri(localPath);
+                                    await this.uploadLocalFileToRemoteIfNeeded(remoteName, localPath, 'heavy', token);
+                                    const remotePath = this.getRemoteFileUri(remoteName, localPath);
                                     fileDecorationManager.setUpToDateFileDecoration(remotePath);
                                     this.uploadedCount++;
                                     progress.report({
@@ -1770,7 +1805,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         });
     }
 
-    async uploadLocalFileToRemoteIfNeeded(localUri: vscode.Uri, connectionType: PoolType, parentToken: vscode.CancellationToken | undefined = undefined, beforePerformOperation?: () => void): Promise<void> {
+    async uploadLocalFileToRemoteIfNeeded(remoteName: string, localUri: vscode.Uri, connectionType: PoolType, parentToken: vscode.CancellationToken | undefined = undefined, beforePerformOperation?: () => void): Promise<void> {
         return new Promise(async (resolve, reject) => {
             try {
                 if (parentToken !== undefined && parentToken.isCancellationRequested) {
@@ -1778,13 +1813,13 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     throw Error('Upload cancelled by user.');
                 }
 
-                const remoteUri = this.getRemoteFileUri(localUri);
+                const remoteUri = this.getRemoteFileUri(remoteName, localUri);
 
                 // Check if file exists
                 var remoteStat: vscode.FileStat | undefined = undefined;
 
                 try {
-                    remoteStat = await this.$stat(localUri, true, 'heavy');
+                    remoteStat = await this.$stat(remoteUri, false, 'heavy');
                 } catch(ex: any) {
                     if (ex instanceof vscode.FileSystemError) {
                         if (ex.code !== 'FileNotFound') {
@@ -1826,10 +1861,10 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                 // Check if parent folder exists.
                 const parentFolder = remoteUri.with({ path: upath.dirname(remoteUri.path) });
                 
-                const connectionProvider = await this.getConnection(connectionType);
+                const connectionProvider = await this.getConnection(remoteName, connectionType);
                 const connection = connectionProvider?.getSFTP();
                 if (connection === undefined) {
-                    await this.releaseConnection(connectionProvider);
+                    await this.releaseConnection(remoteName, connectionProvider);
                     reject(Error('Broken connection to SFTP server.'));
                     return;
                 }
@@ -1943,7 +1978,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             // No error expected at this point, but since we only need stats at this point to adjust the mtime of local file
                             // then we will simply discard this error and print in the logs.
                             logger.appendErrorToMessages('uploadLocalFileToRemoteIfNeeded', 'Something went wrong while updating mtime of local file: ', err);
-                            this.releaseConnection(connectionProvider);
+                            this.releaseConnection(remoteName, connectionProvider);
                             this._fireSoon({ type: vscode.FileChangeType.Changed, uri: remoteUri });
                             resolve();
                             return;
@@ -1958,21 +1993,21 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                     logger.appendErrorToMessages('uploadLocalFileToRemoteIfNeeded', 'Something went wrong while updating mtime of local file: ', err);
                                 }
 
-                                this.releaseConnection(connectionProvider);
+                                this.releaseConnection(remoteName, connectionProvider);
                                 this.removeWatchLock(lock);
                                 this._fireSoon({ type: vscode.FileChangeType.Changed, uri: remoteUri });
                                 resolve();
                             });
                             fileDecorationManager.setUpToDateFileDecoration(remoteUri);
                         } catch(ex: any) {
-                            this.releaseConnection(connectionProvider);
+                            this.releaseConnection(remoteName, connectionProvider);
                             this.removeWatchLock(lock);
                             logger.appendErrorToMessages('uploadLocalFileToRemoteIfNeeded', 'Something went wrong: ', ex);
                             reject(ex);
                         }
                     });
                 } finally {
-                    this.releaseConnection(connectionProvider);
+                    this.releaseConnection(remoteName, connectionProvider);
                 }
             } catch(ex: any) {
                 reject(ex);
@@ -1981,19 +2016,20 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     async downloadRemoteFileToLocalIfNeeded(uri: vscode.Uri, readFile: boolean, connectionType: PoolType, parentToken: vscode.CancellationToken | undefined = undefined, beforePerformOperation?: () => void): Promise<Uint8Array | undefined> {
+        const remoteName = this.getRemoteName(uri);
         return new Promise(async (resolve, reject) => {
             logger.appendLineToMessages('[read-file] ' + uri.path);
 
-            const connectionProvider = await this.getConnection(connectionType);
+            const connectionProvider = await this.getConnection(remoteName, connectionType);
             const connection = connectionProvider?.getSFTP();
             if (connection === undefined) {
-                await this.releaseConnection(connectionProvider);
+                await this.releaseConnection(remoteName, connectionProvider);
                 reject(Error('Broken connection to SFTP server.'));
                 return;
             }
 
             if (parentToken?.isCancellationRequested) {
-                await this.releaseConnection(connectionProvider);
+                await this.releaseConnection(remoteName, connectionProvider);
                 reject(Error('Operation cancelled by user.'));
                 return;
             }
@@ -2004,11 +2040,11 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
             connection.lstat(uri.path, async(error: any, remoteStat) => {
                 if (error) {
-                    await this.releaseConnection(connectionProvider);
+                    await this.releaseConnection(remoteName, connectionProvider);
 
                     if (error.code === ErrorCodes.FILE_NOT_FOUND && readFile) {
                         // May be a local file only...
-                        const localUri = this.getLocalFileUri(uri);
+                        const localUri = this.getLocalFileUri(remoteName, uri);
                         const localStats = this.statLocalFileByUri(localUri);
                         if (localStats !== undefined) {
                             // Local file found, read it and send in response...
@@ -2024,12 +2060,12 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                 }
 
                 if (parentToken?.isCancellationRequested) {
-                    await this.releaseConnection(connectionProvider);
+                    await this.releaseConnection(remoteName, connectionProvider);
                     reject(Error('Operation cancelled by user.'));
                     return;
                 }
 
-                const calculatedLocalFile = this.getLocalFileUri(uri);
+                const calculatedLocalFile = this.getLocalFileUri(remoteName, uri);
 
                 try {
                     const fileType = this.getFileTypeByStats(remoteStat);
@@ -2037,13 +2073,13 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     var realStats = remoteStat;
                     if (fileType === vscode.FileType.SymbolicLink) {
                         if (connection === undefined) {
-                            await this.releaseConnection(connectionProvider);
+                            await this.releaseConnection(remoteName, connectionProvider);
                             reject(Error('Broken connection to SFTP server.'));
                             return;
                         }
 
                         if (parentToken?.isCancellationRequested) {
-                            await this.releaseConnection(connectionProvider);
+                            await this.releaseConnection(remoteName, connectionProvider);
                             reject(Error('Operation cancelled by user.'));
                             return;
                         }
@@ -2051,7 +2087,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                         try {
                             realStats = await this.followSymbolicLinkAndGetStats(connection, uri);
                         } finally {
-                            await this.releaseConnection(connectionProvider);
+                            await this.releaseConnection(remoteName, connectionProvider);
                         }
                     }
 
@@ -2060,7 +2096,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                     if (parentToken?.isCancellationRequested) {
                         reject(Error('Operation cancelled by user.'));
-                        await this.releaseConnection(connectionProvider);
+                        await this.releaseConnection(remoteName, connectionProvider);
                         return;
                     }
 
@@ -2071,12 +2107,12 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             
                             if (!readFile) {
                                 resolve(undefined);
-                                await this.releaseConnection(connectionProvider);
+                                await this.releaseConnection(remoteName, connectionProvider);
                                 return;
                             }
 
                             const res = await vscode.workspace.fs.readFile(calculatedLocalFile);
-                            await this.releaseConnection(connectionProvider);
+                            await this.releaseConnection(remoteName, connectionProvider);
                             resolve(res);
 
                             fileDecorationManager.setUpToDateFileDecoration(uri);
@@ -2086,13 +2122,13 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             logger.appendLineToMessages('[read-file] ' + uri.path + ' -> Local file exists and is newer than remote, rmtime: ' + (remoteStat.mtime * 1000) + ', ltime: ' + localFileStat.mtime);
                             
                             if (!readFile) {
-                                await this.releaseConnection(connectionProvider);
+                                await this.releaseConnection(remoteName, connectionProvider);
                                 resolve(undefined);
                                 return;
                             }
                             
                             const res = await vscode.workspace.fs.readFile(calculatedLocalFile);
-                            await this.releaseConnection(connectionProvider);
+                            await this.releaseConnection(remoteName, connectionProvider);
                             resolve(res);
 
                             fileDecorationManager.setLocalUploadFileDecoration(uri);
@@ -2109,7 +2145,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     }
 
                     if (parentToken?.isCancellationRequested) {
-                        await this.releaseConnection(connectionProvider);
+                        await this.releaseConnection(remoteName, connectionProvider);
                         reject(Error('Operation cancelled by user.'));
                         return;
                     }
@@ -2152,13 +2188,13 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             return new Promise<Uint8Array| undefined>(async (resolveProgress, rejectProgress) => {
                                 try {
                                     if (connection === undefined) {
-                                        await this.releaseConnection(connectionProvider);
+                                        await this.releaseConnection(remoteName, connectionProvider);
                                         reject(Error('Broken connection to SFTP server.'));
                                         return;
                                     }
 
                                     if (parentToken?.isCancellationRequested || token.isCancellationRequested) {
-                                        await this.releaseConnection(connectionProvider);
+                                        await this.releaseConnection(remoteName, connectionProvider);
                                         reject(Error('Operation cancelled by user.'));
                                         return;
                                     }
@@ -2175,23 +2211,23 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                         token,
                                         parentToken
                                     );
-                                    await this.releaseConnection(connectionProvider);
+                                    await this.releaseConnection(remoteName, connectionProvider);
                                     resolveProgress(res);
                                 } catch(ex: any) {
-                                    await this.releaseConnection(connectionProvider);
+                                    await this.releaseConnection(remoteName, connectionProvider);
                                     rejectProgress(ex);
                                 }
                             });
                         });
                     } else {
                         if (connection === undefined) {
-                            await this.releaseConnection(connectionProvider);
+                            await this.releaseConnection(remoteName, connectionProvider);
                             reject(Error('Broken connection to SFTP server.'));
                             return;
                         }
 
                         if (parentToken?.isCancellationRequested) {
-                            await this.releaseConnection(connectionProvider);
+                            await this.releaseConnection(remoteName, connectionProvider);
                             reject(Error('Operation cancelled by user.'));
                             return;
                         }
@@ -2211,12 +2247,12 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                 parentToken
                             );
                         } finally {
-                            await this.releaseConnection(connectionProvider);
+                            await this.releaseConnection(remoteName, connectionProvider);
                         }
                     }
 
                     // Adjust mtime for local
-                    const localPath = this.getLocalFileUri(uri);
+                    const localPath = this.getLocalFileUri(remoteName, uri);
                     await new Promise<void>((resolve) => {
                         connection.lstat(uri.path, (err, stats) => {
                             if (err) {
@@ -2238,16 +2274,16 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                     fileDecorationManager.setUpToDateFileDecoration(uri);
                     logger.appendLineToMessages('[download-file] Completed for: ' + filename);
-                    await this.releaseConnection(connectionProvider);
+                    await this.releaseConnection(remoteName, connectionProvider);
                     resolve(res);
                 } catch(ex: any) {
-                    await this.releaseConnection(connectionProvider);
+                    await this.releaseConnection(remoteName, connectionProvider);
                     
                     // Remove local file at it may be in an invalid state...
                     await vscode.workspace.fs.delete(calculatedLocalFile, { recursive: true, useTrash: false });
                     fileDecorationManager.setRemoteFileDecoration(uri);
 
-                    logger.appendLineToMessages('Cannot read file (' + this.remoteName + '): ' + ex.message);
+                    logger.appendLineToMessages('Cannot read file (' + remoteName + '): ' + ex.message);
                     vscode.window.showErrorMessage(ex.message);
                     reject(ex);
                 }
@@ -2271,6 +2307,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         parentToken: vscode.CancellationToken | undefined
     ): Promise<Uint8Array| undefined> {
         return new Promise((resolve, reject) => {
+            const remoteName = this.getRemoteName(uri);
             connection.fastGet(
                 uri.path, 
                 calculatedLocalFile.fsPath, 
@@ -2300,7 +2337,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             const data = await vscode.workspace.fs.readFile(calculatedLocalFile);
                             resolve(data);
                         } catch(ex: any) {
-                            logger.appendLineToMessages('Cannot read file (' + this.remoteName + '): ' + ex.message);
+                            logger.appendLineToMessages('Cannot read file (' + remoteName + '): ' + ex.message);
                             vscode.window.showErrorMessage(ex.message);
                             reject(err);
                         } finally {
@@ -2314,12 +2351,12 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         });
     }
 
-    async getConnection(type: PoolType) {
+    async getConnection(remoteName: string, type: PoolType) {
         logger.appendLineToMessages('[connection] Trying to acquire "' + type + '" connection.');
-        return (await (await connectionManager.get(this.remoteName)?.getPool(type))?.acquire());
+        return (await (await connectionManager.get(remoteName)?.getPool(type))?.acquire());
     }
 
-    async releaseConnection(connection: ConnectionProvider | undefined) {
+    async releaseConnection(remoteName: string, connection: ConnectionProvider | undefined) {
         try {
             if (connection === undefined) {
                 return;
@@ -2327,7 +2364,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
             logger.appendLineToMessages('[connection] Releasing "' + connection.type + '" connection.');
             
-            (await connectionManager.get(this.remoteName)?.getPool(connection.type))?.release(connection);
+            (await connectionManager.get(remoteName)?.getPool(connection.type))?.release(connection);
 
             logger.appendLineToMessages('[connection] Connection "' + connection.type + '" released.');
         } catch(ex: any) {
@@ -2336,15 +2373,17 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         }
     }
 
-    getLocalFileUri(uri: vscode.Uri) {
-        return this.workDirPath.with({ path: upath.join(this.workDirPath.fsPath, uri.path) });
+    getLocalFileUri(remoteName: string, uri: vscode.Uri) {
+        const workDirPath = this.getSystemProviderData(remoteName)!.workDirPath;
+        return workDirPath.with({ path: upath.join(workDirPath.fsPath, uri.path) });
     }
 
-    getRemoteFileUri(uri: vscode.Uri): vscode.Uri {
-        const basePath = uri.path.toLowerCase().replace(this.workDirPath.path.toLowerCase(), '');
+    getRemoteFileUri(remoteName: string, uri: vscode.Uri): vscode.Uri {
+        const workDirPath = this.getSystemProviderData(remoteName)!.workDirPath;
+        const basePath = uri.path.toLowerCase().replace(workDirPath.path.toLowerCase(), '');
         return uri.with({
             scheme: 'sftp',
-            authority: this.remoteName,
+            authority: remoteName,
             path: basePath
         });
     }
@@ -2361,14 +2400,6 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 			this._bufferedEvents.length = 0;
 		}, 5);
 	}
-
-    private addWatchLockFromRemoteUri(remoteUri: vscode.Uri): WatchLock {
-        const localPath = this.getLocalFileUri(remoteUri);
-        logger.appendLineToMessages('[watcher] Adding locking for: ' + localPath.fsPath);
-        const lock = new WatchLock(localPath);
-        this._watchLocks.set(lock.uuid, lock);
-        return lock;
-    }
 
     private addWatchLockFromLocalUri(localPath: vscode.Uri): WatchLock {
         logger.appendLineToMessages('[watcher] Adding locking for: ' + localPath.fsPath);
@@ -2413,12 +2444,14 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
     async dispose() {
         console.log('Removing file watcher...');
-        await this.workDirWatcher.dispose();
+        this.sftpFileProvidersDataByRemotes.forEach((entry) => {
+            entry.workDirWatcher.dispose();
+        });
         clearInterval(this.watchLocksCleanupTask);
     }
 
-    async removeLocalFile(uri: vscode.Uri, token: vscode.CancellationToken) {
-        const localPath = this.getLocalFileUri(uri);
+    async removeLocalFile(remoteName: string, uri: vscode.Uri, token: vscode.CancellationToken) {
+        const localPath = this.getLocalFileUri(remoteName, uri);
 
         const stat = await this.statLocalFileByUri(localPath);
         if (stat === undefined) {
@@ -2427,7 +2460,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         }
 
         const urisToUpdate: vscode.Uri[] = [];
-        (await this.listLocalAndGetUris(localPath, token)).forEach((u) => urisToUpdate.push(u));
+        (await this.listLocalAndGetUris(remoteName, localPath, token)).forEach((u) => urisToUpdate.push(u));
 
         if (token.isCancellationRequested) {
             throw Error('Remove local file: Operation cancelled.');
@@ -2441,7 +2474,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         }
     }
 
-    private async listLocalAndGetUris(uri: vscode.Uri, token: vscode.CancellationToken) {
+    private async listLocalAndGetUris(remoteName: string, uri: vscode.Uri, token: vscode.CancellationToken) {
         const res: vscode.Uri[] = [];
         const stat = await this.statLocalFileByUri(uri);
 
@@ -2449,7 +2482,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
             throw Error('Remove local file: Operation cancelled.');
         }
 
-        res.push(this.getRemoteFileUri(uri));
+        res.push(this.getRemoteFileUri(remoteName, uri));
         if (stat !== undefined) {
             if (stat.type === vscode.FileType.Directory) {
                 if (token.isCancellationRequested) {
@@ -2461,9 +2494,9 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                         throw Error('Remove local file: Operation cancelled.');
                     }
                     const fileUri = uri.with({ path: upath.join(uri.path, fileEntry[0]) });
-                    res.push(this.getRemoteFileUri(fileUri));
+                    res.push(this.getRemoteFileUri(remoteName, fileUri));
                     if (fileEntry[1] === vscode.FileType.Directory) {
-                        const recursive = await this.listLocalAndGetUris(fileUri, token);
+                        const recursive = await this.listLocalAndGetUris(remoteName, fileUri, token);
                         recursive.forEach((u) => {
                             res.push(u);
                         });
@@ -2554,3 +2587,13 @@ export class WatchLock {
 }
 
 export type SyncOperationType = 'DOWNLOAD_REMOTE' | 'UPLOAD_LOCAL' | 'NOTHING'
+
+export class SFTPFileProviderData {
+    remoteName!: string;
+    remoteConfiguration!: RemoteConfiguration;
+    workDirPath!: vscode.Uri;
+    workDirWatcher!: vscode.FileSystemWatcher;
+    isVCFocused = false;
+    watchLocksCleanupTask!: NodeJS.Timeout;
+    setupDone = false;
+}
