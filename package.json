@@ -1,7 +1,7 @@
 {
   "name": "sftpfs",
-  "displayName": "sftpfs",
-  "description": "",
+  "displayName": "SFTP FS",
+  "description": "An extension that provides a file manager for the SFTP protocol, designed with parallel operations and speed in mind.",
   "version": "1.0.0",
   "publisher": "wirlie",
   "author": {
@@ -18,9 +18,6 @@
     "onFileSystem:sftp"
   ],
   "main": "./dist/extension.js",
-  "enabledApiProposals": [
-    "contribViewsWelcome"
-  ],
   "repository": {
     "url": "https://github.com/LewLie/SFTP-FS-VSC-Extension"
   },
