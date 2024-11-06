@@ -1,13 +1,20 @@
 {
   "name": "sftpfs",
   "displayName": "SFTP FS",
-  "description": "An extension that provides a file manager for the SFTP protocol, designed with parallel operations and speed in mind.",
+  "description": "SFTP Sync: An extension that provides a file manager for the SFTP protocol, designed with parallel operations and speed in mind.",
   "version": "1.0.1",
   "publisher": "lewlie",
   "author": {
     "name": "wirlie",
     "url": "https://wirlie.net"
   },
+  "keywords": [
+    "sftp",
+    "sftp sync",
+    "fs",
+    "file system",
+    "remote"
+  ],
   "engines": {
     "vscode": "^1.95.0"
   },
