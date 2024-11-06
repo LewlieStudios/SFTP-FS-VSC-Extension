@@ -1,52 +1,73 @@
-# SFTP FS
+# SFTP File System
 
-An extension that provides a fast and optimized file system for the SFTP protocol with the advantage of parallel operations.
+A fast and optimized SFTP file system extension, enabling you to work with SFTP files more efficiently than ever before!
 
 ## Features
 
-* Optimized for fast operations.
-* Connection management with the ability of use and re-use many SFTP connections at same time to do parallel operations, decreasing the cost of heavy operations like downloading/uploading a high amount of files.
-* Easy sync of your files between Operating System File Explorer and your SFTP Server.
-* Easy manipulation of folders and files from the File Explorer of VS Code.
-* Manage multiple SFTP workspaces at same time:
+### ✨ Optimized SFTP file system with parallel SFTP operations.
 
-![Multiples Workspaces](images/multiples-wks.png)
+Tired of working with SFTP files and having to manually sync your local and remote files? 😫 With this extension, that’s a thing of the past! 🚀 Download and upload SFTP files in seconds. ⏱️📂
 
-## Requirements
 
-* A SFTP server to connect.
-* VS Code 1.95.0 or higher (if you are not able to update to this version and want to use this extension please fill a request at Github and I will take a look).
+This is possible thanks to excellent handling of simultaneous SFTP connections, which boosts speed and efficiency when working with multiple SFTP files at same time. ⚡📁🚀
 
-## Extension Settings
+![Optimized SFTP file system](images/upload-demo.gif)
+
+### ⚙️ Highly configurable.
+
+Highly configurable extension that adapts to the needs of your environment. ⚙️🌐✨
+
+![Optimized SFTP file system](images/settings-demo.png)
+
+### ⚡ Easily manipulate SFTP files locally and remotely.
+
+Efficiently sync your files! 🔄 SFTP FS does all the work for you, checking the current state of your local and remote files and performing the necessary upload/download operations. 📥📤🚀
+
+![Optimized SFTP file system](images/sync-demo.gif)
+
+### 🚀 Work with multiple SFTP workspaces at the same time.
+
+Work with multiple SFTP folders at the same time! 📂✨ All in one place.
+
+![Optimized SFTP file system](images/multiple-demo.gif)
+
+## 📋 Requirements
+
+* SFTP server to connect to. 🌐
+* VS Code 1.95.0 or higher; if you need support for an earlier version, please open a request through GitHub. 📥🐙
+
+## ⚙️ Extension Settings
 
 This extension contributes the following settings:
 
-#### Behavior
-* `sftpfs.behavior.notification.upload.fileSize`: Show a progressive notification when a file has a size greater than the specified amount of Kilobytes, useful to know the current progress of the upload operation.
-* `sftpfs.behavior.notification.download.fileSize`: Show a progressive notification when a file has a size greater than the specified amount of Kilobytes, useful to know the current progress of the download operation.
+### 🛠️ Behavior
+* `sftpfs.behavior.notification.upload.fileSize`: (Upload): Display a progress notification when a file exceeds the specified size in kilobytes, making it easy to track the current upload progress.
+* `sftpfs.behavior.notification.download.fileSize`: (Download): Display a progress notification when a file exceeds the specified size in kilobytes, making it easy to track the current upload progress.
 
-#### Pool configuration
+### 🦊 Pool configuration
 
-> App uses two type of pool: a **passive** and a **heavy** pool.
+> The app uses two types of pools: a **passive** pool and a **heavy** pool.
 > 
-> The **passive** pool is used for non expensive operations like listing a directory, open a file, rename a folder/file, etc.; you should set lower values for this pool.
-> The **heavy** pool (as opposed of passive pool) is used for very expensive operations like downloading/uploading a high amount of files, you should set higher values for this pool depending of the limitations of your SFTP server (some servers may be very restrictive in the amount of connections that a user can open at same time).
+> The **passive** pool is intended for low-cost operations like listing directories, opening files, renaming folders/files, etc. Lower values are recommended for this pool.
+> 
+> The **heavy** pool, in contrast, is used for high-cost operations such as downloading or uploading large quantities of files. Set higher values for this pool, depending on the limitations of your SFTP server, as some servers restrict the number of simultaneous connections a user can open.
 
-The following configurations are applicable for both type of Pools, replace `<type>` with the appropriate type: `passive` or `heavy`
-* `sftpfs.pool.<type>.max`: Maximum number of connection to open at same time, take in consideration that the SFTP server may restrict the total amount of multiple connections at same time.
-* `sftpfs.pool.<type>.min`: Minimum amount of connection to keep in the pool for future requests, at least make it to be 1/3 of the maximum connections for better performance, for example if maximum connections is 15 set this to 5.
-* `sftpfs.pool.<type>.minIdle`: Amount of connections to keep as idle, a connection is marked as idle when it is released after a SFTP operation, so it can be re-used for next operations without the needing of re-open the connection.
-* `sftpfs.pool.<type>.maxQueue`: Maximum amount of requests to keep in queue if all connections are in use, we recommend to keep it as high as posible, for example 1_000_000, because extension does many operations in paralell form, so multiple acquire requests are queued at same time to perform the operation.
-* `sftpfs.pool.<type>.idleTimeoutMillis`: Time in milliseconds to keep a connection as idle, idle connections will be closed if not are used after the timeout is reached.
+The following configurations apply to both types of pools. Replace `<type>` with the appropriate pool type: `passive` or `heavy`.
 
-#### Remote configuration
+* `sftpfs.pool.<type>.max`: The maximum number of connections to open simultaneously. Keep in mind that the SFTP server may limit the total number of concurrent connections.
+* `sftpfs.pool.<type>.min`: The minimum number of connections to keep in the pool for future requests. For optimal performance, it's recommended to set this to at least 1/3 of the maximum connections. For example, if the maximum connections are set to 15, set this value to 5.
+* `sftpfs.pool.<type>.minIdle`: The number of connections to keep idle. A connection is marked as idle after being released following an SFTP operation, allowing it to be reused for subsequent operations without the need to reopen the connection.
+* `sftpfs.pool.<type>.maxQueue`: The maximum number of requests to keep in the queue when all connections are in use. We recommend setting this value as high as possible, for example, 1,000,000, as the extension performs many operations in parallel. This means multiple acquire requests are queued simultaneously to execute the operations.
+* `sftpfs.pool.<type>.idleTimeoutMillis`: The time, in milliseconds, to keep a connection idle. Idle connections will be closed if they are not used after the specified timeout is reached.
 
-There is two ways that you can use to add a remote configuration to extension.
+### 🛜 Remote configuration
 
-1. Using the command (in Windows CTRL + SHIFT + P) and choosing "SFTP FS: Add remote..."
-2. Editing the configuration directly.
+There are two ways to add a remote configuration to the extension:
 
-For the way #2, edit your settings.json file and add the following configuration:
+1. Use the command "SFTP FS: Add remote..." (CTRL + SHIFT + P on Windows)
+2. Edit the configuration directly.
+
+For option #2, open your `settings.json` file and add the following configuration:
 
 ```
 "sftpfs.remotes": {
@@ -63,9 +84,11 @@ For the way #2, edit your settings.json file and add the following configuration
 },
 ```
 
-#### Working Directories
+### 🧩 Working Directories
 
-The configuration `sftpfs.workDirs` is edited by the extension automatically when you select a folder to synchronize remote files to your local storage.
+The `sftpfs.workDirs` configuration is automatically updated by the extension when you select a folder to synchronize remote files with your local storage.
+
+However, you can adjust the configuration through the settings.json file by modifying the following configuration block:
 
 ```
 "sftpfs.workDirs": {
@@ -75,26 +98,30 @@ The configuration `sftpfs.workDirs` is edited by the extension automatically whe
 },
 ```
 
-## Known Issues
+## ⛓️‍💥 Known Issues
 
-* Editing files locally (via the Operating System File Explorer for example) are not reflected instantly in the File Explorer of VS Code, I am working on a update to implement this feature.
+* Editing files locally (e.g., via the operating system's file explorer) will not be immediately reflected in the VS Code file explorer. I am currently working on an update to implement this feature.
 
-## Release Notes
+## 📋 Release Notes
 
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
+### 🔹 1.0.0
 
 Initial release of the extension with many features:
 
-* Ability to view, create, edit, delete, move, rename files/directories from the File Explorer of VS Code.
-* Ability to download a whole directory from SFTP to local (right-click a folder and choose Sync Local -> Remote in the contextual menu).
-* Ability to upload a whole directory from local to SFTP (right-click a folder and choose Sync Remote -> Local in the contextual menu).
-* Ability to sync folder between both directions, local <-> SFTP (right-click a folder and choose Sync Remote <-> Local in the contextual menu).
-* Added configurations to manage settings for STO connection pools used by the extension.
-* Added an option in contextual menu to disconnect from SFTP server.
-* Added an option in contextual menu to remove local copies of remote files without deleting remote files (right-click a folder and choose Remove local file).
+* View, create, edit, delete, move, and rename files/directories directly from the VS Code file explorer.
+* Download entire directories from SFTP to local storage (right-click a folder and select "Sync Local -> Remote" from the context menu).
+* Upload entire directories from local storage to SFTP (right-click a folder and select "Sync Remote -> Local" from the context menu).
+* Sync folders between both directions, local <-> SFTP (right-click a folder and select "Sync Remote <-> Local" from the context menu).
+* Added configurations to manage settings for SFTP connection pools used by the extension.
+* Option in the context menu to disconnect from the SFTP server.
+* Option in the context menu to remove local copies of remote files without deleting the remote files (right-click a folder and select "Remove local file").
+
+## 🔹 1.0.1
+
+A minor update to update marketplace page.
+
+* Updated README.
 
 ----
 
-_Made with love by the LewLie team 🦊🐺_
+_Made with love by the LewLie Team 🦊🐺_
