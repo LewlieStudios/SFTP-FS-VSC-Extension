@@ -101,6 +101,8 @@ However, you can adjust the configuration through the settings.json file by modi
 ## ⛓️‍💥 Known Issues
 
 * Editing files locally (e.g., via the operating system's file explorer) will not be immediately reflected in the VS Code file explorer. I am currently working on an update to implement this feature.
+* 🗂️ The process of dragging a large number of files into the Visual Studio Code file explorer is too slow, and the files take a long time to write: this is due to an internal limitation of how Visual Studio Code works, as it starts processing each file one by one, preventing the application of parallel operation optimizations. Unfortunately, **this is something we cannot modify**.
+Instead, you can use the **bulk file upload feature**. Right-click on the folder where you want to upload multiple files and select the "Bulk file upload..." action from the context menu.
 
 ## 📋 Release Notes
 

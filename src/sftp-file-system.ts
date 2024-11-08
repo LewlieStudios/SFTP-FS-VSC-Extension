@@ -214,93 +214,127 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                 try {
                     logger.appendLineToMessages('[stat] ' + uri.path);
-                    connection!.lstat(uri.path, async (err: any, stats) => {
-                        var fileStats: Stats | vscode.FileStat = stats;
-                        var isLocalOnly = false;
 
-                        if (err) {
-                            await this.releaseConnection(remoteName, connectionProvider);
-
-                            if (err.code === ErrorCodes.FILE_NOT_FOUND && fallbackToLocalFile) {
-                                // If not exists probably it is a local file that is still not uploaded to remote...
-                                const localUri = this.getLocalFileUri(remoteName, uri);
-                                const localStats = await this.statLocalFileByUri(localUri);
-
-                                if (localStats === undefined) {
-                                    // Okay, definitively it do not exists.
-                                    logger.appendLineToMessages('File not found when stat file (' + remoteName + '): ' + uri.path);
-                                    reject(vscode.FileSystemError.FileNotFound(uri));
-                                    return;
-                                } else {
-                                    fileStats = localStats;
-                                    isLocalOnly = true;
-                                }
-                            } else {
-                                if (err.code === ErrorCodes.FILE_NOT_FOUND) {
-                                    reject(vscode.FileSystemError.FileNotFound(uri));
-                                } else {
-                                    reject(err);
-                                }
+                    // Check if we already cached this file to improve speed.
+                    const parentDirUri = uri.with({ path: upath.dirname(uri.path) });
+                    const cachedDirectory = this.getSystemProviderData(remoteName)!.getCachedStatDirectory(parentDirUri);
+                    if (cachedDirectory !== undefined) {
+                        logger.appendLineToMessages('[stat] Cached directory found for parent of ' + uri.path + ': ' + parentDirUri.path);
+                        const files = cachedDirectory.files;
+                        for (const file of files) {
+                            if(file.filename === upath.basename(uri.path)) {
+                                console.log('[stat] Get ' + file.filename + ' from directory cache: ' + parentDirUri.path);
+                                resolve({
+                                    ctime: 0,
+                                    mtime: file.attrs.mtime,
+                                    size: file.attrs.size,
+                                    type: this.getFileTypeByStats(file.attrs)
+                                });
+                                await this.releaseConnection(remoteName, connectionProvider);
                                 return;
                             }
                         }
 
-                        try {
-                            var fileType = (isLocalOnly) ? (fileStats as vscode.FileStat).type : this.getFileTypeByStats(fileStats as Stats);
+                        logger.appendLineToMessages('[stat] Not cached, trying to resolve from local: ' + uri.path);
 
-                            if (fileType === vscode.FileType.SymbolicLink) {
-                                if (isLocalOnly) {
-                                    // TODO: Must follow symbolic link for local??
-                                    await this.releaseConnection(remoteName, connectionProvider);
-                                    reject(vscode.FileSystemError.FileNotFound(uri));
+                        // File do not exists.
+                        if (fallbackToLocalFile) {
+                            const localUri = this.getLocalFileUri(remoteName, uri);
+                            const localStats = await this.statLocalFileByUri(localUri);
+        
+                            if (localStats === undefined) {
+                                logger.appendLineToMessages('[stat] fail: local not found for: ' + uri.path);
+                                // Okay, definitively it do not exists.
+                                logger.appendLineToMessages('File not found when stat file (' + remoteName + '): ' + uri.path);
+                                reject(vscode.FileSystemError.FileNotFound(uri));
+                                await this.releaseConnection(remoteName, connectionProvider);
+                                return;
+                            } else {
+                                logger.appendLineToMessages('[stat] Trying to get local...: ' + uri.path);
+                                var statsToUse = localStats;
+                                var isLocalOnly = true;
+
+                                const res = await this.$statPerform(uri, connection, statsToUse, isLocalOnly);
+                                await this.releaseConnection(remoteName, connectionProvider);
+                                resolve(res);
+                            }
+                        } else {
+                            logger.appendLineToMessages('File not found when stat file (' + remoteName + '): ' + uri.path);
+                            reject(vscode.FileSystemError.FileNotFound(uri));
+                            await this.releaseConnection(remoteName, connectionProvider);
+                        }
+
+                        return;
+                    }
+
+                    logger.appendLineToMessages('[stat] Not cached: ' + uri.path);
+
+                    // Read content of parent folder an cache it
+                    const parentPath = upath.dirname(uri.path);
+
+                    logger.appendLineToMessages('[stat] Reading directory: ' + parentPath);
+
+                    // Read the entire directory and cache, to speedup stat operation
+                    await new Promise<void>((resolve, reject) => {
+                        connection.readdir(parentPath, async (err, list) => {
+                            if (err) {
+                                reject(err);
+                                return;
+                            }
+
+                            try {
+                                // Cache all directory to improve speed.
+                                this.getSystemProviderData(this.getRemoteName(uri))!.addCachedStatDirectory(
+                                    uri.with({ path: parentPath }),
+                                    list
+                                );
+
+                                resolve();
+                            } catch(ex: any) {
+                                reject(ex);
+                            }
+                        });
+                    });
+
+                    // Not cached, use lstat directly to get the stat of file
+                    connection!.lstat(uri.path, async (err: any, stats) => {
+                        try {
+                            var statsToUse: Stats | vscode.FileStat = stats;
+                            var isLocalOnly = false;
+
+                            if (err) {
+                                await this.releaseConnection(remoteName, connectionProvider);
+                
+                                if (err.code === ErrorCodes.FILE_NOT_FOUND && fallbackToLocalFile) {
+                                    // If not exists probably it is a local file that is still not uploaded to remote...
+                                    const localUri = this.getLocalFileUri(remoteName, uri);
+                                    const localStats = await this.statLocalFileByUri(localUri);
+                
+                                    if (localStats === undefined) {
+                                        // Okay, definitively it do not exists.
+                                        logger.appendLineToMessages('File not found when stat file (' + remoteName + '): ' + uri.path);
+                                        reject(vscode.FileSystemError.FileNotFound(uri));
+                                        return;
+                                    } else {
+                                        statsToUse = localStats;
+                                        isLocalOnly = true;
+                                    }
+                                } else {
+                                    if (err.code === ErrorCodes.FILE_NOT_FOUND) {
+                                        reject(vscode.FileSystemError.FileNotFound(uri));
+                                    } else {
+                                        reject(err);
+                                    }
                                     return;
                                 }
-                                
-                                fileStats = await this.followSymbolicLinkAndGetStats(connection, uri);
-                                fileType = this.getFileTypeByStats(fileStats);
                             }
 
-                            // Check local file
-                            if (isLocalOnly) {
-                                fileDecorationManager.setLocalNewFileDecoration(uri);
-                            } else {
-                                var calculatedLocalFile = this.getLocalFileUri(remoteName, uri);
-                                const lock = this.addWatchLockFromLocalUri(calculatedLocalFile);
-
-                                try {
-                                    const localFileStat = await this.statLocalFileByUri(calculatedLocalFile);
-                                    if (localFileStat === undefined) {
-                                        fileDecorationManager.setRemoteFileDecoration(uri);
-                                    } else {
-                                        if (localFileStat.type === vscode.FileType.Directory) {
-                                            fileDecorationManager.setDirectoryFileDecoration(uri);
-                                        } else {
-                                            const res = await this.resolveWhatFileIsNewer(localFileStat, fileStats);
-                                            if (res === "same") {
-                                                fileDecorationManager.setUpToDateFileDecoration(uri);
-                                            } else if(res === 'local_newer') {
-                                                fileDecorationManager.setLocalUploadFileDecoration(uri);
-                                            } else if(res === 'remote_newer') {
-                                                fileDecorationManager.setRemoteDownloadFileDecoration(uri);
-                                            } else {
-                                                fileDecorationManager.setUnknownStateFileDecoration(uri);
-                                            }
-                                        }
-                                    }
-                                } finally {
-                                    this.removeWatchLock(lock);
-                                }
-                            }
-
+                            const res = await this.$statPerform(uri, connection, statsToUse, isLocalOnly);
                             await this.releaseConnection(remoteName, connectionProvider);
-                            resolve({
-                                type: fileType,
-                                ctime: 0,
-                                mtime: fileStats.mtime,
-                                size: fileStats.size
-                            });
+                            resolve(res);
                         } catch(ex: any) {
                             await this.releaseConnection(remoteName, connectionProvider);
+                            logger.appendErrorToMessages('$stat', 'Error on (' + remoteName + '): ' + uri.path, ex);
                             reject(ex);
                         }
                     });
@@ -315,6 +349,70 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                         reject(error);
                     }
                 }
+            } catch(ex: any) {
+                reject(ex);
+            }
+        });
+    }
+
+    async $statPerform(uri: vscode.Uri, connection: SFTPWrapper, fileStats: Stats | vscode.FileStat, isLocalOnly: boolean) {
+        const remoteName = this.getRemoteName(uri);
+        
+        logger.appendLineToMessages('[stat] $statPerform for ' + uri.path);
+
+        return new Promise<vscode.FileStat>(async (resolve, reject) => {
+            try {
+                var fileType = (isLocalOnly) ? (fileStats as vscode.FileStat).type : this.getFileTypeByStats(fileStats as Stats);
+
+                if (fileType === vscode.FileType.SymbolicLink) {
+                    if (isLocalOnly) {
+                        // TODO: Must follow symbolic link for local??
+                        reject(vscode.FileSystemError.FileNotFound(uri));
+                        return;
+                    }
+                    
+                    fileStats = await this.followSymbolicLinkAndGetStats(connection, uri);
+                    fileType = this.getFileTypeByStats(fileStats);
+                }
+
+                // Check local file
+                if (isLocalOnly) {
+                    fileDecorationManager.setLocalNewFileDecoration(uri);
+                } else {
+                    var calculatedLocalFile = this.getLocalFileUri(remoteName, uri);
+                    const lock = this.addWatchLockFromLocalUri(calculatedLocalFile);
+
+                    try {
+                        const localFileStat = await this.statLocalFileByUri(calculatedLocalFile);
+                        if (localFileStat === undefined) {
+                            fileDecorationManager.setRemoteFileDecoration(uri);
+                        } else {
+                            if (localFileStat.type === vscode.FileType.Directory) {
+                                fileDecorationManager.setDirectoryFileDecoration(uri);
+                            } else {
+                                const res = await this.resolveWhatFileIsNewer(localFileStat, fileStats);
+                                if (res === "same") {
+                                    fileDecorationManager.setUpToDateFileDecoration(uri);
+                                } else if(res === 'local_newer') {
+                                    fileDecorationManager.setLocalUploadFileDecoration(uri);
+                                } else if(res === 'remote_newer') {
+                                    fileDecorationManager.setRemoteDownloadFileDecoration(uri);
+                                } else {
+                                    fileDecorationManager.setUnknownStateFileDecoration(uri);
+                                }
+                            }
+                        }
+                    } finally {
+                        this.removeWatchLock(lock);
+                    }
+                }
+
+                resolve({
+                    type: fileType,
+                    ctime: 0,
+                    mtime: fileStats.mtime,
+                    size: fileStats.size
+                });
             } catch(ex: any) {
                 reject(ex);
             }
@@ -2596,4 +2694,26 @@ export class SFTPFileProviderData {
     isVCFocused = false;
     watchLocksCleanupTask!: NodeJS.Timeout;
     setupDone = false;
+    cachedStatDirectories: Map<string, CachedStatDirectory> = new Map();
+
+    getCachedStatDirectory(uri: vscode.Uri) {
+        if (this.cachedStatDirectories.has(uri.fsPath)) {
+            return this.cachedStatDirectories.get(uri.fsPath);
+        }
+
+        return undefined;
+    }
+
+    addCachedStatDirectory(uri: vscode.Uri, files: FileEntryWithStats[]) {
+        console.log('[stat] Added to cache: ' + uri.path);
+        this.cachedStatDirectories.set(uri.fsPath, {
+            timestamp: Date.now(),
+            files
+        });
+    }
+}
+
+export interface CachedStatDirectory {
+    timestamp: number
+    files: FileEntryWithStats[]
 }

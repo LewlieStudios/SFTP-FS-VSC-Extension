@@ -1,7 +1,7 @@
 {
   "name": "sftpfs",
   "displayName": "SFTP FS",
-  "description": "SFTP Sync: An extension that provides a file manager for the SFTP protocol, designed with parallel operations and speed in mind.",
+  "description": "An extension that provides a file manager for the SFTP protocol, designed with parallel operations and speed in mind.",
   "version": "1.0.1",
   "publisher": "lewlie",
   "author": {
@@ -30,11 +30,11 @@
   },
   "contributes": {
     "viewsWelcome": [
-      {
-        "view": "explorer",
-        "contents": "Work remote with SFTP\n\n\n[$(cloud) - Open SFTP Connection](command:sftpfs.connectRemote)",
-        "when": "!workspaceFolderCount"
-      }
+        {
+            "view": "explorer",
+            "contents": "Work remote with SFTP\n\n\n[$(cloud) - Open SFTP Connection](command:sftpfs.connectRemote)",
+            "when": "!workspaceFolderCount"
+        }
     ],
     "commands": [
       {
@@ -88,10 +88,19 @@
       {
         "command": "sftpfs.disconnectDirectRemote",
         "title": "SFTP: Disconnect"
+      },
+      {
+        "command": "sftpfs.bulkFileUpload",
+        "title": "Bulk file upload..."
       }
     ],
     "menus": {
       "explorer/context": [
+        {
+          "command": "sftpfs.bulkFileUpload",
+          "when": "resourceScheme == 'sftp' && explorerResourceIsFolder",
+          "group": "sftp.io"
+        },
         {
           "command": "sftpfs.disconnectDirectRemote",
           "when": "resourceScheme == 'sftp' && resourcePath == '/'",
@@ -144,6 +153,10 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "sftpfs.bulkFileUpload",
+          "when": "false"
+        },
         {
           "command": "sftpfs.disconnectDirectRemote",
           "when": "false"
@@ -381,5 +394,6 @@
   "type": "commonjs",
   "icon": "icon.png",
   "pricing": "Free",
-  "badges": []
+  "badges": [
+  ]
 }
