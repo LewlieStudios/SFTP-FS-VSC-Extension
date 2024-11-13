@@ -187,12 +187,12 @@
       "properties": {
         "sftpfs.behavior.notification.upload.fileSize": {
           "type": "integer",
-          "description": "Show a progressive notification when a file has a size greater than the specified amount of Kilobytes, useful to know the current progress of the upload operation.",
+          "description": "(Upload): Display a progress notification when a file exceeds the specified size in kilobytes, making it easy to track the current upload progress.",
           "default": 5120
         },
         "sftpfs.behavior.notification.download.fileSize": {
           "type": "integer",
-          "description": "Show a progressive notification when a file has a size greater than the specified amount of Kilobytes, useful to know the current progress of the download operation.",
+          "description": "(Download): Display a progress notification when a file exceeds the specified size in kilobytes, making it easy to track the current upload progress.",
           "default": 5120
         },
         "sftpfs.cache.metadata.files.seconds": {
@@ -202,52 +202,52 @@
         },
         "sftpfs.pool.passive.max": {
           "type": "integer",
-          "description": "Maximum number of connection to open at same time, take in consideration that the SFTP server may restrict the total amount of multiple connections at same time.",
+          "description": "The maximum number of connections to open simultaneously. Keep in mind that the SFTP server may limit the total number of concurrent connections.",
           "default": 5
         },
         "sftpfs.pool.passive.min": {
           "type": "integer",
-          "description": "Minimum amount of connection to keep in the pool for future requests, at least make it to be 1/3 of the maximum connections for better performance, for example if maximum connections is 15 set this to 5.",
+          "description": "The minimum number of connections to keep in the pool for future requests. For optimal performance, it's recommended to set this to at least 1/3 of the maximum connections. For example, if the maximum connections are set to 15, set this value to 5.",
           "default": 3
         },
         "sftpfs.pool.passive.minIdle": {
           "type": "integer",
-          "description": "Amount of connections to keep as idle, a connection is marked as idle when it is released after a SFTP operation, so it can be re-used for next operations without the needing of re-open the connection.",
+          "description": "The number of connections to keep idle. A connection is marked as idle after being released following an SFTP operation, allowing it to be reused for subsequent operations without the need to reopen the connection.",
           "default": 3
         },
         "sftpfs.pool.passive.maxQueue": {
           "type": "integer",
-          "description": "Maximum amount of requests to keep in queue if all connections are in use, we recommend to keep it as high as posible, for example 1_000_000, because extension does many operations in paralell form, so multiple acquire requests are queued at same time to perform the operation.",
+          "description": "The maximum number of requests to keep in the queue when all connections are in use. We recommend setting this value as high as possible, for example, 1,000,000, as the extension performs many operations in parallel. This means multiple acquire requests are queued simultaneously to execute the operations.",
           "default": 10000000
         },
         "sftpfs.pool.passive.idleTimeoutMillis": {
           "type": "integer",
-          "description": "Time in milliseconds to keep a connection as idle, idle connections will be closed if not are used after the timeout is reached.",
+          "description": "The time, in milliseconds, to keep a connection idle. Idle connections will be closed if they are not used after the specified timeout is reached.",
           "default": 60000
         },
         "sftpfs.pool.heavy.max": {
           "type": "integer",
-          "description": "Maximum number of connection to open at same time, take in consideration that the SFTP server may restrict the total amount of multiple connections at same time.",
+          "description": "The maximum number of connections to open simultaneously. Keep in mind that the SFTP server may limit the total number of concurrent connections.",
           "default": 15
         },
         "sftpfs.pool.heavy.min": {
           "type": "integer",
-          "description": "Minimum amount of connection to keep in the pool for future requests, at least make it to be 1/3 of the maximum connections for better performance, for example if maximum connections is 15 set this to 5.",
+          "description": "The minimum number of connections to keep in the pool for future requests. For optimal performance, it's recommended to set this to at least 1/3 of the maximum connections. For example, if the maximum connections are set to 15, set this value to 5.",
           "default": 5
         },
         "sftpfs.pool.heavy.minIdle": {
           "type": "integer",
-          "description": "Amount of connections to keep as idle, a connection is marked as idle when it is released after a SFTP operation, so it can be re-used for next operations without the needing of re-open the connection.",
+          "description": "The number of connections to keep idle. A connection is marked as idle after being released following an SFTP operation, allowing it to be reused for subsequent operations without the need to reopen the connection.",
           "default": 5
         },
         "sftpfs.pool.heavy.maxQueue": {
           "type": "integer",
-          "description": "Maximum amount of requests to keep in queue if all connections are in use, we recommend to keep it as high as posible, for example 1_000_000, because extension does many operations in paralell form, so multiple acquire requests are queued at same time to perform the operation.",
+          "description": "The maximum number of requests to keep in the queue when all connections are in use. We recommend setting this value as high as possible, for example, 1,000,000, as the extension performs many operations in parallel. This means multiple acquire requests are queued simultaneously to execute the operations.",
           "default": 10000000
         },
         "sftpfs.pool.heavy.idleTimeoutMillis": {
           "type": "integer",
-          "description": "Time in milliseconds to keep a connection as idle, idle connections will be closed if not are used after the timeout is reached.",
+          "description": "The time, in milliseconds, to keep a connection idle. Idle connections will be closed if they are not used after the specified timeout is reached.",
           "default": 60000
         },
         "sftpfs.workDirs": {

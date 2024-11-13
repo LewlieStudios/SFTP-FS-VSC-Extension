@@ -44,6 +44,9 @@ This extension contributes the following settings:
 * `sftpfs.behavior.notification.upload.fileSize`: (Upload): Display a progress notification when a file exceeds the specified size in kilobytes, making it easy to track the current upload progress.
 * `sftpfs.behavior.notification.download.fileSize`: (Download): Display a progress notification when a file exceeds the specified size in kilobytes, making it easy to track the current upload progress.
 
+### 📦 Cache
+* `sftpfs.cache.metadata.files.seconds`: How long, in seconds, should file metadata be kept in the cache to improve certain operations, such as directory listing and uploading/downloading multiple files.
+
 ### 🦊 Pool configuration
 
 > The app uses two types of pools: a **passive** pool and a **heavy** pool.
@@ -101,10 +104,24 @@ However, you can adjust the configuration through the settings.json file by modi
 ## ⛓️‍💥 Known Issues
 
 * Editing files locally (e.g., via the operating system's file explorer) will not be immediately reflected in the VS Code file explorer. I am currently working on an update to implement this feature.
-* 🗂️ The process of dragging a large number of files into the Visual Studio Code file explorer is too slow, and the files take a long time to write: this is due to an internal limitation of how Visual Studio Code works, as it starts processing each file one by one, preventing the application of parallel operation optimizations. Unfortunately, **this is something we cannot modify**.
-Instead, you can use the **bulk file upload feature**. Right-click on the folder where you want to upload multiple files and select the "Bulk file upload..." action from the context menu.
+* 🗂️ Download or upload of a large number of files using the Visual Studio Code file explorer is not done in parallel but one by one, making the operation slow. This is a limitation of Visual Studio Code, and there is currently no solution.
+Instead of using the Visual Studio Code file explorer to upload files, place the files in your local folder, right-click folder in the file explorer of VSCode, and select the action "SFTP Dir Sync: 2. Local → Remote (upload)." to upload multiple files in parallel.
 
 ## 📋 Release Notes
+
+### 🔹 1.1.0
+
+* Fixed: When uploading files to the remote server, folder was always uploaded with a lowercase name regardless if folder name contained uppercase and lowercase letters. This has been fixed, and uploads are now handled correctly.
+* Feature: A file metadata cache was added to improve upload and download times for multiple files without needing to query the remote server for already know metadata. Setting `sftpfs.cache.metadata.files.seconds` has been added to control this behavior.
+* Feature: Implemented contextual menu actions "SFTP File Sync: 1. Remote → Local (download)" and "SFTP File Sync: 2. Local → Remote (upload)" to download/upload a single file from/to remote server.
+* Improvement: The "Reveal in File Explorer" action has been improved; it now selects the file in system file explorer.
+* Improvement: Files uploaded via VSCode file explorer now uses the setting `sftpfs.behavior.notification.upload.fileSize` to display a progressive notification when a file is uploaded.
+
+### 🔹 1.0.1
+
+A minor update to update marketplace page.
+
+* Updated README.
 
 ### 🔹 1.0.0
 
@@ -117,12 +134,6 @@ Initial release of the extension with many features:
 * Added configurations to manage settings for SFTP connection pools used by the extension.
 * Option in the context menu to disconnect from the SFTP server.
 * Option in the context menu to remove local copies of remote files without deleting the remote files (right-click a folder and select "Remove local file").
-
-## 🔹 1.0.1
-
-A minor update to update marketplace page.
-
-* Updated README.
 
 ----
 
