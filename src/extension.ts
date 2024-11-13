@@ -390,7 +390,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 					// Download if needed
 					logger.appendLineToMessages('Downloading file... ' + uri.path);
-					await provider.downloadRemoteFileToLocalIfNeeded(uri, false, 'passive');
+					await provider.downloadRemoteFileToLocalIfNeeded(uri, false, 'passive', false);
 
 					logger.appendLineToMessages('Opening file... ' + calculatedLocalFile.fsPath);
 					await provider.openLocalFolderInExplorer(calculatedLocalFile);
@@ -742,6 +742,53 @@ export async function activate(context: vscode.ExtensionContext) {
 
     })
   );
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('sftpfs.downloadRemoteFile', async (uri: vscode.Uri) => {
+			try {
+				const provider = SFTPFileSystemProvider.instance;
+				if (provider === undefined) {
+					logger.appendLineToMessages('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					return;
+				}
+
+				await provider.downloadRemoteFileToLocalIfNeeded(uri, false, 'passive', true);
+				
+				item.text = '$(cloud) Ready';
+				vscode.window.showInformationMessage('Download for "' + upath.basename(uri.path) + '" completed.');
+			} catch(ex: any) {
+				item.text = '$(cloud) Ready';
+				logger.appendErrorToMessages('sftpfs.downloadRemoteFile', 'Failed due error:', ex);
+				vscode.window.showErrorMessage('Operation failed: ' + ex.message);
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('sftpfs.uploadLocalFile', async (uri: vscode.Uri) => {
+			try {
+				const provider = SFTPFileSystemProvider.instance;
+				if (provider === undefined) {
+					logger.appendLineToMessages('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					return;
+				}
+
+				logger.appendLineToMessages('[sftpfs.uploadLocalFile] ' + uri.path);
+
+				const localPath = provider.getLocalFileUri(uri.authority, uri);
+				await provider.uploadLocalFileToRemoteIfNeeded(uri.authority, localPath, 'passive', true);
+				
+				item.text = '$(cloud) Ready';
+				vscode.window.showInformationMessage('Upload for "' + upath.basename(uri.path) + '" completed.');
+			} catch(ex: any) {
+				item.text = '$(cloud) Ready';
+				logger.appendErrorToMessages('sftpfs.uploadLocalFile', 'Failed due error:', ex);
+				vscode.window.showErrorMessage('Operation failed: ' + ex.message);
+			}
+		})
+	);
 }
 
 function getWebviewContent(uri: vscode.Uri, bootstrapJs: vscode.Uri, bootstrapCss: vscode.Uri) {

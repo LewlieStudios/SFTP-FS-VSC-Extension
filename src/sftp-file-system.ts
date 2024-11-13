@@ -581,7 +581,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     return;
                 }
 
-                const data = await this.downloadRemoteFileToLocalIfNeeded(uri, true, 'passive');
+                const data = await this.downloadRemoteFileToLocalIfNeeded(uri, true, 'passive', false);
                 resolve(data!);
             } catch(ex: any) {
                 logger.appendLineToMessages('Cannot read file (' + remoteName + '): ' + ex.message);
@@ -1294,7 +1294,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                             this.syncedCount++;
                                             progress.report({ increment: this.syncedProgress, message: '(' + this.syncedCount + ' of ' + this.syncCount + '): Completed ' + uri.path });
                                         } else if(operation === 'DOWNLOAD_REMOTE') {
-                                            await this.downloadRemoteFileToLocalIfNeeded(uri, false, 'heavy', token, () => {
+                                            await this.downloadRemoteFileToLocalIfNeeded(uri, false, 'heavy', false, token, () => {
                                                 progress.report({ increment: 0, message: '(' + this.syncedCount + ' of ' + this.syncCount + '): ' + uri.path });
                                             });
                                             fileDecorationManager.setUpToDateFileDecoration(uri);
@@ -1845,7 +1845,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                                 if (fileType === vscode.FileType.File) {
                                     logger.appendLineToMessages('[download-from-remote] Downloading file: ' + remotePath.path);
                                     // In case of file, download it
-                                    await this.downloadRemoteFileToLocalIfNeeded(remotePath, false, 'heavy', token);
+                                    await this.downloadRemoteFileToLocalIfNeeded(remotePath, false, 'heavy', false, token);
                                     fileDecorationManager.setUpToDateFileDecoration(remotePath);
                                     this.downloadedCount++;
                                     progress.report({
@@ -2088,7 +2088,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         });
     }
 
-    async downloadRemoteFileToLocalIfNeeded(uri: vscode.Uri, readFile: boolean, connectionType: PoolType, parentToken: vscode.CancellationToken | undefined = undefined, beforePerformOperation?: () => void): Promise<Uint8Array | undefined> {
+    async downloadRemoteFileToLocalIfNeeded(uri: vscode.Uri, readFile: boolean, connectionType: PoolType, forceLocalDownload: boolean, parentToken: vscode.CancellationToken | undefined = undefined, beforePerformOperation?: () => void): Promise<Uint8Array | undefined> {
         const remoteName = this.getRemoteName(uri);
         return new Promise(async (resolve, reject) => {
             logger.appendLineToMessages('[read-file] ' + uri.path);
@@ -2175,7 +2175,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
                     if (localFileStat !== undefined) {
                         const comparisonResult = await this.resolveWhatFileIsNewer(localFileStat, remoteStat);
-                        if (comparisonResult === 'same') {
+                        if (comparisonResult === 'same' && !forceLocalDownload) {
                             logger.appendLineToMessages('[read-file] ' + uri.path + ' -> Local file exists and is the same as remote, using local file., rmtime: ' + (remoteStat.mtime * 1000) + ', ltime: ' + localFileStat.mtime);
                             
                             if (!readFile) {
@@ -2191,7 +2191,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                             fileDecorationManager.setUpToDateFileDecoration(uri);
 
                             return;
-                        } else if(comparisonResult === 'local_newer') {
+                        } else if(comparisonResult === 'local_newer' && !forceLocalDownload) {
                             logger.appendLineToMessages('[read-file] ' + uri.path + ' -> Local file exists and is newer than remote, rmtime: ' + (remoteStat.mtime * 1000) + ', ltime: ' + localFileStat.mtime);
                             
                             if (!readFile) {
