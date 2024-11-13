@@ -98,7 +98,7 @@
       "explorer/context": [
         {
           "command": "sftpfs.bulkFileUpload",
-          "when": "resourceScheme == 'sftp' && explorerResourceIsFolder",
+          "when": "false && resourceScheme == 'sftp' && explorerResourceIsFolder",
           "group": "sftp.io"
         },
         {
