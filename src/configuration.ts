@@ -2,7 +2,7 @@ import { workspace } from "vscode";
 
 class Configuration {
 
-  async getRemotesConfiguration() {
+  getRemotesConfiguration() {
     const currentRemotes = workspace.getConfiguration('sftpfs').get<RemoteConfigurationSection>('remotes');
     if (currentRemotes === undefined) {
       return {};
@@ -11,8 +11,8 @@ class Configuration {
     return currentRemotes;
   };
 
-  async getRemotesConfigurationNames() {
-    return Object.keys(await this.getRemotesConfiguration());
+  getRemotesConfigurationNames() {
+    return Object.keys(this.getRemotesConfiguration());
   }
 
   async saveRemoteConfiguration(
@@ -23,7 +23,7 @@ class Configuration {
     remotePath: string,
     password?: string
   ) {
-    const config = await this.getRemotesConfiguration();
+    const config = this.getRemotesConfiguration();
     config[name.trim().toLowerCase()] = {
       host,
       port,
@@ -35,7 +35,7 @@ class Configuration {
   }
 
   async removeRemoteConfiguration(namesToRemove: string[]) {
-    const config = await this.getRemotesConfiguration();
+    const config = this.getRemotesConfiguration();
     const newStorage = Object.keys(config)
     .filter(sKey => namesToRemove.find((n) => n === sKey) === undefined)
     .reduce((obj: RemoteConfigurationSection, key: string)=> {
@@ -45,8 +45,8 @@ class Configuration {
     await workspace.getConfiguration('sftpfs').update('remotes', newStorage, true);
   }
 
-  async getRemoteConfiguration(name: string) {
-    const config = await this.getRemotesConfiguration();
+  getRemoteConfiguration(name: string) {
+    const config = this.getRemotesConfiguration();
     if (!(name in config)) {
       return undefined;
     }
@@ -55,7 +55,7 @@ class Configuration {
     return config[name];
   }
 
-  async getWorkDirForRemote(remoteName: string) {
+  getWorkDirForRemote(remoteName: string) {
     const workDirsConfig = workspace.getConfiguration('sftpfs').get<WorkDirConfigurationSection>('workDirs');
     if (workDirsConfig === undefined) {
       return undefined;

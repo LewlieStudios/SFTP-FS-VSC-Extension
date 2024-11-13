@@ -47,7 +47,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         return uri.authority;
     }
 
-    private async setupFileSystem(uri: vscode.Uri) {
+    private setupFileSystem(uri: vscode.Uri) {
         if (this.getSystemProviderData(uri.authority) !== undefined) {
             return;
         }
@@ -55,8 +55,8 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         const newData = new SFTPFileProviderData();
         newData.setupDone = true;
         newData.remoteName = uri.authority;
-        newData.remoteConfiguration = await configuration.getRemoteConfiguration(newData.remoteName) ?? {};
-        const current = (await configuration.getWorkDirForRemote(newData.remoteName));
+        newData.remoteConfiguration = configuration.getRemoteConfiguration(newData.remoteName) ?? {};
+        const current = (configuration.getWorkDirForRemote(newData.remoteName));
         if (current === undefined) {
             throw Error("Working directory not found for this SFTP file provider.");
         }
@@ -169,40 +169,36 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         return new vscode.Disposable(() => {});
     }
 
-    stat(uri: vscode.Uri): Promise<vscode.FileStat> {
+    stat(uri: vscode.Uri): Promise<vscode.FileStat> | vscode.FileStat {
         return this.$stat(uri, true, 'passive');
     }
 
-    $stat(uri: vscode.Uri, fallbackToLocalFile: boolean, connectionType: PoolType): Promise<vscode.FileStat> {
+    $stat(uri: vscode.Uri, fallbackToLocalFile: boolean, connectionType: PoolType): Promise<vscode.FileStat> | vscode.FileStat {
         const remoteName = this.getRemoteName(uri);
 
+        if (uri.path === '/') {
+            return {
+                type: vscode.FileType.Directory,
+                ctime: Date.now(),
+                mtime: Date.now(),
+                size: 0,
+            };
+        }
+
+        if (uri.path.startsWith('/.vscode')) {
+            logger.appendLineToMessages('[stat] Skipped stat: ' + uri.path);
+            throw vscode.FileSystemError.FileNotFound(uri);
+        }
+
+        if (uri.path.startsWith('/.git')) {
+            logger.appendLineToMessages('[stat] Skipped stat: ' + uri.path);
+            throw vscode.FileSystemError.FileNotFound(uri);
+        }
+
+        this.setupFileSystem(uri);
+
         return new Promise(async (resolve, reject) => {
-            if (uri.path === '/') {
-                resolve(
-                    {
-                        type: vscode.FileType.Directory,
-                        ctime: Date.now(),
-                        mtime: Date.now(),
-                        size: 0,
-                    }
-                );
-                return;
-            }
-
-            if (uri.path.startsWith('/.vscode')) {
-                logger.appendLineToMessages('[stat] Skipped stat: ' + uri.path);
-                reject(vscode.FileSystemError.FileNotFound(uri));
-                return;
-            }
-
-            if (uri.path.startsWith('/.git')) {
-                logger.appendLineToMessages('[stat] Skipped stat: ' + uri.path);
-                reject(vscode.FileSystemError.FileNotFound(uri));
-                return;
-            }
-
             try {
-                await this.setupFileSystem(uri);
                 const connectionProvider = await this.getConnection(remoteName, connectionType);
                 const connection = connectionProvider?.getSFTP();
 
@@ -424,7 +420,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
         return new Promise(async (resolve, reject) => {
             try {
-                await this.setupFileSystem(uri);
+                this.setupFileSystem(uri);
                 const workDirPath = this.getSystemProviderData(remoteName)!.workDirPath;
 
                 if (uri.path.startsWith('/.vscode')) {
@@ -546,7 +542,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
         return new Promise(async (resolve, reject) => {
             try {
-                await this.setupFileSystem(uri);
+                this.setupFileSystem(uri);
 
                 if (uri.path === '/') {
                     resolve(new Uint8Array());
@@ -576,7 +572,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     writeFile(uri: vscode.Uri, content: Uint8Array, options: { readonly create: boolean; readonly overwrite: boolean; }): Promise<void> {
         const remoteName = this.getRemoteName(uri);
         return new Promise( async (resolve, reject) => {
-            await this.setupFileSystem(uri);
+            this.setupFileSystem(uri);
             const connectionProvider = await this.getConnection(remoteName, 'passive');
             const connection = connectionProvider?.getSFTP();
             if (connection === undefined) {
@@ -768,7 +764,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
             title: 'Creating directory "' + uri.path + ' "...'
         }, () => {
             return new Promise<void>(async (resolve, reject) => {
-                await this.setupFileSystem(uri);
+                this.setupFileSystem(uri);
                 const connectionProvider = await this.getConnection(remoteName, 'passive');
                 const connection = connectionProvider?.getSFTP();
                 if (connection === undefined) {
@@ -808,7 +804,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
     async delete(uri: vscode.Uri, options: { readonly recursive: boolean; }): Promise<void> {
         const remoteName = this.getRemoteName(uri);
-        await this.setupFileSystem(uri);
+        this.setupFileSystem(uri);
 
         const connectionProvider = await this.getConnection(remoteName, 'heavy');
         const connection = connectionProvider?.getSFTP();
@@ -958,7 +954,7 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
         const remoteName = this.getRemoteName(oldUri);
 
         return new Promise(async (resolve, reject) => {
-            await this.setupFileSystem(oldUri);
+            this.setupFileSystem(oldUri);
             const connectionProvider = await this.getConnection(remoteName, 'passive');
             const connection = connectionProvider?.getSFTP();
             if (connection === undefined) {
