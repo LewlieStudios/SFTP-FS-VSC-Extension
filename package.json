@@ -79,7 +79,7 @@
       },
       {
         "command": "sftpfs.removeLocalFile",
-        "title": "Remove local file (Keep remote file)"
+        "title": "SFTP: Delete local files"
       },
       {
         "command": "sftpfs.reconnect",
@@ -207,6 +207,11 @@
           "type": "integer",
           "description": "Show a progressive notification when a file has a size greater than the specified amount of Kilobytes, useful to know the current progress of the download operation.",
           "default": 5120
+        },
+        "sftpfs.cache.metadata.files.seconds": {
+          "type": "integer",
+          "description": "How long, in seconds, should file metadata be kept in the cache to improve certain operations, such as directory listing and uploading/downloading multiple files.",
+          "default": 30
         },
         "sftpfs.pool.passive.max": {
           "type": "integer",

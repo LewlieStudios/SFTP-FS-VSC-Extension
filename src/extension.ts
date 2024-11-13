@@ -412,10 +412,26 @@ export async function activate(context: vscode.ExtensionContext) {
 					return;
 				}
 
+				// Stat local file
+				const localFile = provider.getLocalFileUri(uri.authority, uri);
+				const localStat = await provider.statLocalFileByUri(localFile);
+
+        if (localStat === undefined) {
+            vscode.window.showInformationMessage('There is not a local version of this file.');
+            return;
+        }
+
+				if (localStat.type === vscode.FileType.Directory) {
+					const res = await vscode.window.showInformationMessage('All files stored at ' + localFile.fsPath + ' on your local storage will be deleted. This will only delete your local files, leaving the remote files untouched. Do you wish to continue?', { modal: true }, 'Yes', 'No');
+					if (res === 'No' || res === undefined) {
+						return;
+					}
+				}
+
 				await vscode.window.withProgress({
 					cancellable: true,
 					location: vscode.ProgressLocation.Notification,
-					title: 'Deleting files...'
+					title: 'Deleting local files...'
 				}, async (progress, token) => {
 					await provider.removeLocalFile(provider.getRemoteName(uri), uri, token);
 					await closeEditorByUri(uri);

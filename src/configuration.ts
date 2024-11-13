@@ -15,6 +15,18 @@ class Configuration {
     return Object.keys(this.getRemotesConfiguration());
   }
 
+  getCacheMetadataTimeToKeep() {
+    return workspace.getConfiguration('sftpfs.cache.metadata.files').get('seconds', 30);
+  }
+
+  getBehaviorNotificationUploadKB() {
+    return workspace.getConfiguration('sftpfs.behavior.notification.upload').get('fileSize', 5120);
+  }
+
+  getBehaviorNotificationDownloadKB() {
+    return workspace.getConfiguration('sftpfs.behavior.notification.download').get('fileSize', 5120);
+  }
+
   async saveRemoteConfiguration(
     name: string,
     host: string,
