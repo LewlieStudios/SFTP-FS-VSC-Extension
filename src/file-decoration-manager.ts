@@ -7,6 +7,9 @@ export class FileDecorationManager {
   private decorations = new Map<string, CachedDecoration>();
   private item!: vscode.StatusBarItem;
 
+	private _bufferedEvents: CachedDecoration[] = [];
+	private _fireSoonHandle?: NodeJS.Timeout;
+
   provideFileDecoration(uri: vscode.Uri): vscode.ProviderResult<vscode.FileDecoration> {
     if (uri.scheme !== 'sftp') {
       return undefined;
@@ -97,12 +100,25 @@ export class FileDecorationManager {
     if (uri.scheme !== 'sftp') {
       return undefined;
     }
-    // console.info('[decoration] Updated decoration for ' + uri.toString() + ' to ' + decoration.badge);
-    this.decorations.set(uri.toString(), {
-      realUri: uri,
-      decoration
-    });
-    this._onDidChangeFileDecorations.fire(uri);
+
+    this._bufferedEvents.push(
+      {
+        realUri: uri,
+        decoration
+      }
+    );
+
+    if (this._fireSoonHandle) {
+			clearTimeout(this._fireSoonHandle);
+		}
+
+    this._fireSoonHandle = setTimeout(() => {
+      for (const event of this._bufferedEvents) {
+        this.decorations.set(event.realUri.toString(), event);
+        this._onDidChangeFileDecorations.fire(event.realUri);
+      }
+			this._bufferedEvents = [];
+		}, 100);
   }
 
 	setStatusBarItem(item: vscode.StatusBarItem) {
