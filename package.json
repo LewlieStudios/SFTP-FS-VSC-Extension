@@ -74,10 +74,6 @@
         "title": "SFTP File Sync: 2. Local → Remote (upload)"
       },
       {
-        "command": "sftpfs.refreshRemoteFile",
-        "title": "SFTP File Sync: 3. Local ↔ Remote (both)"
-      },
-      {
         "command": "sftpfs.removeLocalFile",
         "title": "SFTP: Delete local files"
       },
@@ -142,11 +138,6 @@
           "group": "sftp.io"
         },
         {
-          "command": "sftpfs.refreshRemoteFile",
-          "when": "resourceScheme == 'sftp' && !explorerResourceIsFolder",
-          "group": "sftp.io"
-        },
-        {
           "command": "sftpfs.reconnect",
           "when": "resourceScheme == 'sftp' && resourcePath == '/'",
           "group": "sftp.connection"
@@ -183,10 +174,6 @@
         },
         {
           "command": "sftpfs.uploadLocalFile",
-          "when": "false"
-        },
-        {
-          "command": "sftpfs.refreshRemoteFile",
           "when": "false"
         },
         {
