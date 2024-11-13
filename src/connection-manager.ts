@@ -146,7 +146,18 @@ export class ResourcedPool {
         if (provider.status === 'CLOSED') {
           throw Error('SFTP already closed.');
         }
-  
+
+        await new Promise<void>((resolve, reject) => {
+          provider.getSFTP().stat('/', (err) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+
+            resolve();
+          });
+        });
+
         provider.getSFTP();
       }
     };
