@@ -51,7 +51,7 @@
       },
       {
         "command": "sftpfs.showInSystemExplorer",
-        "title": "Reveal in System Explorer"
+        "title": "Reveal in File Explorer"
       },
       {
         "command": "sftpfs.downloadRemoteFolder",
@@ -114,7 +114,7 @@
         {
           "command": "sftpfs.showInSystemExplorer",
           "when": "resourceScheme == 'sftp' && resourcePath != '/'",
-          "group": "sftp.miscellaneous"
+          "group": "navigation"
         },
         {
           "command": "sftpfs.downloadRemoteFolder",

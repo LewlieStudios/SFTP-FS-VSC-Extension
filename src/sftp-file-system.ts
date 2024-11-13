@@ -1186,26 +1186,41 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     async openLocalFolderInExplorer(uri: vscode.Uri) {
-        const folderPath = uri.fsPath;
+        let filePath = uri.fsPath;
       
-        if (!folderPath) {
-          vscode.window.showErrorMessage("Invalid folder path.");
+        if (!filePath) {
+            vscode.window.showErrorMessage("Invalid path.");
           return;
+        }
+
+        // Check if the URI is a file; if so, get its parent directory
+        const stats = await vscode.workspace.fs.stat(uri);
+        const isFile = stats.type === vscode.FileType.File;
+        if (isFile) {
+            const dirPath = upath.dirname(filePath);
+            // Modify command to open folder with the file selected
+            if (process.platform === 'win32') {
+                // Windows - /select to highlight the file
+                filePath = `/select,"${filePath}"`;
+            } else if (process.platform === 'darwin') {
+                // macOS - "open" with `-R` option to reveal the file in Finder
+                filePath = `-R "${filePath}"`;
+            } else {
+                // Linux - open parent directory (Linux generally doesn’t highlight the file)
+                filePath = `"${dirPath}"`;
+            }
         }
 
         try {
           if (process.platform === 'win32') {
-            // Windows
-            childProcess.exec(`explorer "${folderPath}"`);
+                childProcess.exec(`explorer ${filePath}`);
           } else if (process.platform === 'darwin') {
-            // macOS
-            childProcess.exec(`open "${folderPath}"`);
+                childProcess.exec(`open ${filePath}`);
           } else {
-            // Linux
-            childProcess.exec(`xdg-open "${folderPath}"`);
+                childProcess.exec(`xdg-open ${filePath}`);
           }
         } catch (error: any) {
-            logger.appendErrorToMessages('openLocalFolderInExplorer', 'Failed to open folder using system explorer: ' + uri.fsPath, error);
+            logger.appendErrorToMessages('openLocalFolderInExplorer', 'Failed to open file using system explorer: ' + uri.fsPath, error);
             vscode.window.showErrorMessage(`Failed to open folder: ${error.message}`);
         }
     }

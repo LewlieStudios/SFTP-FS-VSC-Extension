@@ -392,9 +392,8 @@ export async function activate(context: vscode.ExtensionContext) {
 					logger.appendLineToMessages('Downloading file... ' + uri.path);
 					await provider.downloadRemoteFileToLocalIfNeeded(uri, false, 'passive');
 
-					const directoryLocalPath = provider.getDirectoryPath(calculatedLocalFile);
-					logger.appendLineToMessages('Opening folder... ' + directoryLocalPath.fsPath);
-					await provider.openLocalFolderInExplorer(directoryLocalPath);
+					logger.appendLineToMessages('Opening file... ' + calculatedLocalFile.fsPath);
+					await provider.openLocalFolderInExplorer(calculatedLocalFile);
 				}
 			} catch(ex: any) {
 				logger.appendErrorToMessages('sftpfs.showInSystemExplorer', 'Error', ex);
