@@ -109,6 +109,10 @@ Instead of using the Visual Studio Code file explorer to upload files, place the
 
 ## 📋 Release Notes
 
+### 🔹 1.1.1
+
+* Improvement: Added validation to SFTP connections to check if connection is still valid before any SFTP operation, if connection is not valid a new connection is created and the previous connection is removed from the pool of connections.
+
 ### 🔹 1.1.0
 
 * Fixed: When uploading files to the remote server, folder was always uploaded with a lowercase name regardless if folder name contained uppercase and lowercase letters. This has been fixed, and uploads are now handled correctly.
