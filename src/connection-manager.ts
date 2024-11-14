@@ -8,9 +8,9 @@ import { workspace } from 'vscode';
 export class ConnectionManager {
   private openConnections: Map<string, ResourcedPool> = new Map();
 
-  async createPool(openConfiguration: SFTPConnectionOpen) {
+  async createPool(openConfiguration: SFTPConnectionOpen, testSuite: boolean = false) {
     logger.appendLineToMessages('Created connection pool for remote "' + openConfiguration.remoteName + '".');
-    const pool = new ResourcedPool(openConfiguration);
+    const pool = new ResourcedPool(openConfiguration, testSuite);
     this.openConnections.set(openConfiguration.remoteName, pool);
   }
 
@@ -57,7 +57,19 @@ export class ResourcedPool {
   remoteName: string;
   configuration: RemoteConfiguration;
 
-  constructor(openConfiguration: SFTPConnectionOpen) {
+  testSuiteHeavyPoolMax: number = -1;
+  testSuiteHeavyPoolMin: number = -1;
+  testSuiteHeavyPoolMinIdle: number = -1;
+  testSuiteHeavyPoolMaxQueue: number = -1;
+  testSuiteHeavyPoolIdleTimeoutMillis: number = -1;
+
+  testSuitePassivePoolMax: number = -1;
+  testSuitePassivePoolMin: number = -1;
+  testSuitePassivePoolMinIdle: number = -1;
+  testSuitePassivePoolMaxQueue: number = -1;
+  testSuitePassivePoolIdleTimeoutMillis: number = -1;
+
+  constructor(openConfiguration: SFTPConnectionOpen, testSuite: boolean = false) {
     this.configuration = openConfiguration.configuration;
     this.remoteName = openConfiguration.remoteName;
 
@@ -183,7 +195,7 @@ export class ResourcedPool {
 
     this.poolPromise = new Promise(async (resolve, reject) => {
       try {
-        await this.setupPool();
+        await this.setupPool(testSuite);
         resolve();
       } catch(ex: any) {
         reject(ex);
@@ -224,7 +236,7 @@ export class ResourcedPool {
     });
   }
 
-  async setupPool() {
+  async setupPool(testSuite: boolean = false) {
     const heavyConfig = workspace.getConfiguration('sftpfs.pool.heavy');
 
     const heavyMax = heavyConfig.get('max', 15);
@@ -247,30 +259,47 @@ export class ResourcedPool {
     logger.appendLineToMessages('[pool-config] heavy.maxQueue = ' + heavyMaxQueue);
     logger.appendLineToMessages('[pool-config] heavy.idleTimeoutMillis = ' + heavyIdleTimeoutMillis);
 
+    this.testSuiteHeavyPoolMax = heavyMax;
+    this.testSuiteHeavyPoolMin = heavyMin;
+    this.testSuiteHeavyPoolMinIdle = heavyMinIdle;
+    this.testSuiteHeavyPoolMaxQueue = heavyMaxQueue;
+    this.testSuiteHeavyPoolIdleTimeoutMillis = heavyIdleTimeoutMillis;
+
     logger.appendLineToMessages('[pool-config] passive.max = ' + passiveMax);
     logger.appendLineToMessages('[pool-config] passive.min = ' + passiveMin);
     logger.appendLineToMessages('[pool-config] passive.minIdle = ' + passiveMinIdle);
     logger.appendLineToMessages('[pool-config] passive.maxQueue = ' + passiveMaxQueue);
     logger.appendLineToMessages('[pool-config] passive.idleTimeoutMillis = ' + passiveIdleTimeoutMillis);
+
+    this.testSuitePassivePoolMax = passiveMax;
+    this.testSuitePassivePoolMin = passiveMin;
+    this.testSuitePassivePoolMinIdle = passiveMinIdle;
+    this.testSuitePassivePoolMaxQueue = passiveMaxQueue;
+    this.testSuitePassivePoolIdleTimeoutMillis = passiveIdleTimeoutMillis;
+
     logger.appendLineToMessages('[pool-config] targetHost = ' + this.configuration.host);
     logger.appendLineToMessages('[pool-config] targetPort = ' + this.configuration.port);
     logger.appendLineToMessages('[pool-config] targetUser = ' + this.configuration.username);
 
-    this.heavyPool = new Pool(this.heavyFactory, {  
-      max: heavyMax,    // maximum size of the pool
-      min: heavyMin,     // minimum size of the pool
-      minIdle: heavyMinIdle,  // minimum idle resources
-      maxQueue: heavyMaxQueue, // Unlimited pool...
-      idleTimeoutMillis: heavyIdleTimeoutMillis,
-    });
+    if (!testSuite) {
+      this.heavyPool = new Pool(this.heavyFactory, {  
+        max: heavyMax,    // maximum size of the pool
+        min: heavyMin,     // minimum size of the pool
+        minIdle: heavyMinIdle,  // minimum idle resources
+        maxQueue: heavyMaxQueue, // Unlimited pool...
+        idleTimeoutMillis: heavyIdleTimeoutMillis,
+      });
 
-    this.passivePool = new Pool(this.passiveFactory, {  
-      max: passiveMax,    // maximum size of the pool
-      min: passiveMin,     // minimum size of the pool
-      minIdle: passiveMinIdle,  // minimum idle resources
-      maxQueue: passiveMaxQueue, // Unlimited pool...
-      idleTimeoutMillis: passiveIdleTimeoutMillis,
-    });
+      this.passivePool = new Pool(this.passiveFactory, {  
+        max: passiveMax,    // maximum size of the pool
+        min: passiveMin,     // minimum size of the pool
+        minIdle: passiveMinIdle,  // minimum idle resources
+        maxQueue: passiveMaxQueue, // Unlimited pool...
+        idleTimeoutMillis: passiveIdleTimeoutMillis,
+      });
+    } else {
+      console.info('Skip pool creation due test suite.');
+    }
   }
 
 }

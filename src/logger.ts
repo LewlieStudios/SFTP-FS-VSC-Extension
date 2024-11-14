@@ -4,8 +4,15 @@ import * as vscode from 'vscode';
 export class Logger {
   messagesChannel!: OutputChannel;
   messagesErrChannel!: OutputChannel;
+  initialized = false;
 
   init() {
+    if (this.initialized) {
+      return;
+    }
+
+    this.initialized = true;
+    
     this.messagesChannel = vscode.window.createOutputChannel('SFTP FS - Messages');
     this.messagesChannel.appendLine('This output channel will contain general messages related to SFTP FS.');
     this.messagesErrChannel = vscode.window.createOutputChannel('SFTP FS - Errors');
