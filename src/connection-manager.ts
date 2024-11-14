@@ -64,9 +64,9 @@ export class ResourcedPool {
     this.passiveFactory = {
       create: async function() {
         const client = new Client("sftp-" + openConfiguration.remoteName);
-        logger.appendLineToMessages('Connecting to remote SFTP "' + openConfiguration.remoteName + '"....');
+        logger.appendLineToMessages('[connection] [task] Connecting to remote SFTP "' + openConfiguration.remoteName + '"....');
         const sftp = await client.connect({ ...openConfiguration.configuration });
-        logger.appendLineToMessages('Connection success to remote SFTP "' + openConfiguration.remoteName + '"...');
+        logger.appendLineToMessages('[connection] [task] Connection success to remote SFTP "' + openConfiguration.remoteName + '"...');
         const provider = new ConnectionProvider(client, sftp, 'passive');
   
         client.on('close', () => {
@@ -94,13 +94,28 @@ export class ResourcedPool {
         return provider;
       },
       destroy: async function(provider) {  
-        logger.appendLineToMessages('Destroying connection for remote SFTP "' + openConfiguration.remoteName + '"...');
+        logger.appendLineToMessages('[connection] [task] Destroying connection for remote SFTP "' + openConfiguration.remoteName + '"...');
         provider.getSFTP().end();
       },
       validate: async function(provider) {
         if (provider.status === 'CLOSED') {
           throw Error('SFTP already closed.');
         }
+
+        logger.appendLineToMessages('[connection] [task] Validating connection for "' + openConfiguration.remoteName + '"...');
+
+        await new Promise<void>((resolve, reject) => {
+          provider.getSFTP().stat('/', (err) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+
+            resolve();
+          });
+        });
+
+        logger.appendLineToMessages('[connection] [task] Validated connection for "' + openConfiguration.remoteName + '"...');
   
         provider.getSFTP();
       }
@@ -109,9 +124,9 @@ export class ResourcedPool {
     this.heavyFactory = {
       create: async function() {
         const client = new Client("sftp-" + openConfiguration.remoteName);
-        logger.appendLineToMessages('Connecting to remote SFTP "' + openConfiguration.remoteName + '"....');
+        logger.appendLineToMessages('[connection] [task] Connecting to remote SFTP "' + openConfiguration.remoteName + '"....');
         const sftp = await client.connect({ ...openConfiguration.configuration });
-        logger.appendLineToMessages('Connection success to remote SFTP "' + openConfiguration.remoteName + '"...');
+        logger.appendLineToMessages('[connection] [task] Connection success to remote SFTP "' + openConfiguration.remoteName + '"...');
         const provider = new ConnectionProvider(client, sftp, 'heavy');
   
         client.on('close', () => {
@@ -139,13 +154,15 @@ export class ResourcedPool {
         return provider;
       },
       destroy: async function(provider) {  
-        logger.appendLineToMessages('Destroying connection for remote SFTP "' + openConfiguration.remoteName + '"...');
+        logger.appendLineToMessages('[connection] [task] Destroying connection for remote SFTP "' + openConfiguration.remoteName + '"...');
         provider.getSFTP().end();
       },
       validate: async function(provider) {
         if (provider.status === 'CLOSED') {
           throw Error('SFTP already closed.');
         }
+
+        logger.appendLineToMessages('[connection] [task] Validating connection for "' + openConfiguration.remoteName + '"...');
 
         await new Promise<void>((resolve, reject) => {
           provider.getSFTP().stat('/', (err) => {
@@ -157,6 +174,8 @@ export class ResourcedPool {
             resolve();
           });
         });
+
+        logger.appendLineToMessages('[connection] [task] Validated connection for "' + openConfiguration.remoteName + '"...');
 
         provider.getSFTP();
       }
@@ -191,7 +210,7 @@ export class ResourcedPool {
   async reconnect() {
     this.poolPromise = new Promise(async (resolve, reject) => {
       try {
-        logger.appendLineToMessages('Performing reconnection...');
+        logger.appendLineToMessages('[pool] [task] Performing reconnection...');
         this.terminated = true;
         await this.passivePool.closeAsync(true);
         await this.heavyPool.closeAsync(true);
