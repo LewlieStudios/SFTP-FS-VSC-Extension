@@ -109,6 +109,11 @@ Instead of using the Visual Studio Code file explorer to upload files, place the
 
 ## 📋 Release Notes
 
+### 🔹 1.1.2
+
+* Improvement: Validation of SFTP connection is now done after 60 seconds to speed-up SFTP operations on SFTP servers with high latency.
+* Improvement: Directories are now cached when required and not on every SFTP operation to speed-up STP operations on SFTP servers with high latency.
+
 ### 🔹 1.1.1
 
 * Improvement: Added validation to SFTP connections to check if connection is still valid before any SFTP operation, if connection is not valid a new connection is created and the previous connection is removed from the pool of connections.
