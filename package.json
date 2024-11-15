@@ -2,7 +2,7 @@
   "name": "sftpfs",
   "displayName": "SFTP FS",
   "description": "An extension that provides a file manager for the SFTP protocol, designed with parallel operations and speed in mind.",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "publisher": "lewlie",
   "author": {
     "name": "wirlie",
