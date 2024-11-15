@@ -114,7 +114,12 @@ export class ResourcedPool {
           throw Error('SFTP already closed.');
         }
 
+        if (!provider.requiresValidation()) {
+          return;
+        }
+
         logger.appendLineToMessages('[connection] [task] Validating connection for "' + openConfiguration.remoteName + '"...');
+        const start = Date.now();
 
         await new Promise<void>((resolve, reject) => {
           provider.getSFTP().stat('/', (err) => {
@@ -127,7 +132,10 @@ export class ResourcedPool {
           });
         });
 
-        logger.appendLineToMessages('[connection] [task] Validated connection for "' + openConfiguration.remoteName + '"...');
+        const end = Date.now() - start;
+
+        provider.lastValidation = Date.now();
+        logger.appendLineToMessages('[connection] [task] Validated connection for "' + openConfiguration.remoteName + '" in ' + end + 'ms...');
   
         provider.getSFTP();
       }
@@ -311,6 +319,7 @@ export class ConnectionProvider {
   private sftp: SFTPWrapper;
   type: PoolType;
   status: ConnectionStatus = 'OPENING';
+  lastValidation: number = Date.now();
 
   constructor(client: Client, sftp: SFTPWrapper, type: PoolType) {
     this.client = client;
@@ -323,6 +332,11 @@ export class ConnectionProvider {
       throw Error('SFTP already closed');
     }
     return this.sftp;
+  }
+
+  requiresValidation() {
+    // More than 60s, then should ve validated...
+    return Date.now() - this.lastValidation >= 60_000;
   }
 }
 

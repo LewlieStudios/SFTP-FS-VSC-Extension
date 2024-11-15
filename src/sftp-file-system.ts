@@ -21,6 +21,8 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
     private isVCFocused = false;
     watchLocksCleanupTask: NodeJS.Timeout;
     cachedDirectoriesCleanupTask: NodeJS.Timeout;
+    requestedDirectoriesCleanupTask: NodeJS.Timeout;
+    requestedDirectoriesThreshold = new Map<string, RequestedDirectoryThreshold>();
 
     constructor() {
         SFTPFileSystemProvider.instance = this;
@@ -34,6 +36,21 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
             for (const data of this.sftpFileProvidersDataByRemotes) {
                 const fileProviderData = data[1];
                 fileProviderData.cleanCachedDirectories();
+            }
+        }, 1000);
+
+        this.requestedDirectoriesCleanupTask = setInterval(() => {
+            const keysToRemove: string[] = [];
+            for (const entry of this.requestedDirectoriesThreshold) {
+                const key = entry[0];
+                const val = entry[1];
+                if (Date.now() - val.timestamp >= 10_000) {
+                    // More than 10s, prune this.
+                    keysToRemove.push(key);
+                }
+            }
+            for (const key of keysToRemove) {
+                this.requestedDirectoriesThreshold.delete(key);
             }
         }, 1000);
 
@@ -267,55 +284,79 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     logger.appendLineToMessages('[stat] Not cached: ' + uri.path);
 
                     // Read content of parent folder an cache it
-                    const parentPath = upath.dirname(uri.path);
-                    logger.appendLineToMessages('[stat] Trying to read directory for cache: ' + parentPath);
+                    logger.appendLineToMessages('[stat] Trying to read directory for cache: ' + parentDirUri.path);
 
                     // Read the entire directory and cache, to speedup stat operation
                     // Note: readdir already gets the stats of all files, so we can use that result
                     // to get the stat of the requested file...
-                    var parentDirStatResult = await new Promise<FileEntryWithStats[]>((resolve, reject) => {
-                        connection.stat(parentPath, (err: any) => {
-                            if (err) {
-                                if (err.code === ErrorCodes.FILE_NOT_FOUND) {
-                                    logger.appendErrorToMessages('$stat', 'File not found when stat directory for cache (' + remoteName + '): ' + uri.path, err);
-                                    reject(vscode.FileSystemError.FileNotFound(uri));
-                                } else {
-                                    reject(err);
-                                }
-                                return;
-                            }
+                    var parentDirStatResult: FileEntryWithStats[] | undefined = undefined;
 
-                            connection.readdir(parentPath, async (err, list) => {
+                    if (this.shouldCacheDirectory(parentDirUri)) {
+                        logger.appendLineToMessages('[stat] [cache] Should cache this directory: ' + parentDirUri.path);
+                        parentDirStatResult = await new Promise<FileEntryWithStats[]>((resolve, reject) => {
+                            connection.stat(parentDirUri.path, (err: any) => {
                                 if (err) {
-                                    reject(err);
+                                    if (err.code === ErrorCodes.FILE_NOT_FOUND) {
+                                        logger.appendErrorToMessages('$stat', 'File not found when stat directory for cache (' + remoteName + '): ' + uri.path, err);
+                                        reject(vscode.FileSystemError.FileNotFound(uri));
+                                    } else {
+                                        reject(err);
+                                    }
                                     return;
                                 }
     
-                                try {
-                                    // Cache all directory to improve speed.
-                                    this.getSystemProviderData(this.getRemoteName(uri))!.addCachedStatDirectory(
-                                        uri.with({ path: parentPath }),
-                                        list
-                                    );
-    
-                                    resolve(list);
-                                } catch(ex: any) {
-                                    reject(ex);
-                                }
+                                connection.readdir(parentDirUri.path, async (err, list) => {
+                                    if (err) {
+                                        reject(err);
+                                        return;
+                                    }
+        
+                                    try {
+                                        // Cache all directory to improve speed.
+                                        this.getSystemProviderData(this.getRemoteName(uri))!.addCachedStatDirectory(
+                                            uri.with({ path: parentDirUri.path }),
+                                            list
+                                        );
+        
+                                        resolve(list);
+                                    } catch(ex: any) {
+                                        reject(ex);
+                                    }
+                                });
                             });
                         });
-                    });
+                    } else {
+                        logger.appendLineToMessages('[stat] [cache] Cache is not required for: ' + parentDirUri.path);
+                    }
 
                     try {
                         var statsToUse: Stats | vscode.FileStat | undefined = undefined;
 
                         // try to get the file from the readdir result...
-                        for (const entry of parentDirStatResult) {
-                            const entryPath = uri.with({ path: upath.join(parentPath, entry.filename) });
-                            if (entryPath.path === uri.path) {
-                                // file exists!
-                                statsToUse = entry.attrs;
+                        if (parentDirStatResult !== undefined) {
+                            for (const entry of parentDirStatResult) {
+                                const entryPath = uri.with({ path: upath.join(parentDirUri.path, entry.filename) });
+                                if (entryPath.path === uri.path) {
+                                    // file exists!
+                                    statsToUse = entry.attrs;
+                                }
                             }
+                        } else {
+                            statsToUse = await new Promise((resolve ,reject) => {
+                                connection.lstat(uri.path, (err: any, stat) => {
+                                    if (err) {
+                                        if (err.code === ErrorCodes.FILE_NOT_FOUND) {
+                                            logger.appendErrorToMessages('$stat', 'File not found when stat directory for cache (' + remoteName + '): ' + uri.path, err);
+                                            reject(vscode.FileSystemError.FileNotFound(uri));
+                                        } else {
+                                            reject(err);
+                                        }
+                                        return;
+                                    }
+
+                                    resolve(stat);
+                                });
+                            });
                         }
 
                         var isLocalOnly = false;
@@ -2636,6 +2677,22 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
             }
         }
     }
+
+    shouldCacheDirectory(uri: vscode.Uri): boolean {
+        const existingValue = this.requestedDirectoriesThreshold.get(uri.toString());
+        if (existingValue === undefined) {
+            this.requestedDirectoriesThreshold.set(uri.toString(), {
+                requestedTimes: 1,
+                timestamp: Date.now()
+            });
+            return false;
+        }
+
+        existingValue.timestamp = Date.now();
+        existingValue.requestedTimes++;
+
+        return existingValue.requestedTimes > 5;
+    }
 }
 
 export enum ErrorCodes {
@@ -2734,4 +2791,9 @@ export class SFTPFileProviderData {
 export interface CachedStatDirectory {
     timestamp: number
     files: FileEntryWithStats[]
+}
+
+export interface RequestedDirectoryThreshold {
+    requestedTimes: number
+    timestamp: number
 }
