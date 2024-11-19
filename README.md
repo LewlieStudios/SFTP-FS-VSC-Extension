@@ -109,6 +109,12 @@ Instead of using the Visual Studio Code file explorer to upload files, place the
 
 ## 📋 Release Notes
 
+### 🔹 1.2.0
+
+* Improvement: Added a cache to store directories content, this will improve some file operations like: renaming a file, create a file, create a directory, delete a file/directory.
+* Added: Added contextual action "SFTP Dir: Refresh directory content" to refresh the content of a directory, use this action when you have made changes to a directory from SFTP server and you want to see the changes in the file explorer.
+* Feature: Changed minimum version of engine to 1.93.0, this will allow extensions to work with VSCode 1.93.0 and above.
+
 ### 🔹 1.1.2
 
 * Improvement: Validation of SFTP connection is now done after 60 seconds to speed-up SFTP operations on SFTP servers with high latency.
