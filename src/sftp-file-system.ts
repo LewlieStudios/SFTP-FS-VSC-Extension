@@ -907,6 +907,17 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                     return;
                 }
 
+                // Parent directory uri
+                const parentFolderUri = uri.with({ path: upath.dirname(uri.path) });
+                const cache = this.cachedRemoteDirectoryFiles.get(parentFolderUri.toString());
+                if (cache) {
+                    const filename = upath.basename(uri.path);
+                    const index = cache.files.findIndex(entry => entry[0] === filename);
+                    if (index !== -1) {
+                        cache.files.splice(index, 1);
+                    }
+                }
+
                 // Delete local file...
                 const localPath = this.getLocalFileUri(remoteName, uri);
                 const lock = this.addWatchLockFromLocalUri(localPath);
@@ -945,6 +956,9 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
                         reject(err);
                         return;
                     }
+
+                    // Delete remote directory from cache...
+                    this.cachedRemoteDirectoryFiles.delete(uri.toString());
 
                     // Delete local directory...
                     const localPath = this.getLocalFileUri(remoteName, uri);

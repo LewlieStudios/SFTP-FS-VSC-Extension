@@ -109,6 +109,10 @@ Instead of using the Visual Studio Code file explorer to upload files, place the
 
 ## 📋 Release Notes
 
+### 🔹 1.2.1
+
+* Hotfix: Fixed an issue when deleting a file or folder that causes the file or folder to reappear in the file explorer after deletion, this was a visual bug be
+
 ### 🔹 1.2.0
 
 * Improvement: Added a cache to store directories content, this will improve some file operations like: renaming a file, create a file, create a directory, delete a file/directory.
