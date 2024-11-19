@@ -271,6 +271,18 @@ export class SFTPFileSystemProvider implements vscode.FileSystemProvider {
 
         return new Promise(async (resolve, reject) => {
             try {
+                const localUri = this.getLocalFileUri(remoteName, uri);
+                // If it is a directory stored locally then return it to improve performance.
+                const localStats = await this.statLocalFileByUri(localUri);
+                console.info('TRYING LOCAL: ' + localUri.toString());
+                console.info('RES: ' + localStats?.type);
+
+                if (localStats !== undefined && localStats.type === vscode.FileType.Directory) {
+                    console.info('RESOLVED');
+                    resolve(localStats);
+                    return;
+                }
+
                 const connectionProvider = await this.getConnection(remoteName, connectionType);
                 const connection = connectionProvider?.getSFTP();
 
