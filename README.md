@@ -34,7 +34,7 @@ Work with multiple SFTP folders at the same time! 📂✨ All in one place.
 ## 📋 Requirements
 
 * SFTP server to connect to. 🌐
-* VS Code 1.95.0 or higher; if you need support for an earlier version, please open a request through GitHub. 📥🐙
+* VS Code 1.93.0 or higher; if you need support for a lower version please open a request at GitHub. 📥🐙
 
 ## ⚙️ Extension Settings
 
