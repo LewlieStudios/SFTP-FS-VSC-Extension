@@ -789,6 +789,31 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		})
 	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('sftpfs.refreshDirectory', async (uri: vscode.Uri) => {
+			try {
+				const provider = SFTPFileSystemProvider.instance;
+				if (provider === undefined) {
+					logger.appendLineToMessages('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
+					return;
+				}
+
+				item.text = '$(cloud) Refreshing directory ' + uri.path;
+				logger.appendLineToMessages('[sftpfs.refreshDirectory] ' + uri.path);
+
+				await provider.refreshDirectoryContent(uri);
+				
+				item.text = '$(cloud) Ready';
+				vscode.window.showInformationMessage(upath.basename(uri.path) + '" directory refreshed.');
+			} catch(ex: any) {
+				item.text = '$(cloud) Ready';
+				logger.appendErrorToMessages('sftpfs.refreshDirectory', 'Failed due error:', ex);
+				vscode.window.showErrorMessage('Operation failed: ' + ex.message);
+			}
+		})
+	);
 }
 
 function getWebviewContent(uri: vscode.Uri, bootstrapJs: vscode.Uri, bootstrapCss: vscode.Uri) {
