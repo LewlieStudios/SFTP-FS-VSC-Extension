@@ -2,161 +2,274 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import logger from './logger.js';
-import configuration from './configuration.js';
+import configuration, { RemoteConfiguration } from './configuration.js';
 import connectionManager from './connection-manager.js';
 import { SFTPFileSystemProvider } from './sftp-file-system.js';
 import upath from 'upath';
 import fileDecorationManager from './file-decoration-manager.js';
 import os from 'os';
+import { QuickPickItemWithValue } from './models.js';
 
 const getOpen = async () => import('open');
+let remoteConfigurationQuickPick: vscode.QuickPick<QuickPickItemWithValue> | undefined = undefined;
+
+const addEditRemoteFormFunction = async (existingConfigurationName: string | undefined) => {
+	const existingConfiguration: RemoteConfiguration | undefined = existingConfigurationName ? configuration.getRemoteConfiguration(existingConfigurationName) : undefined;
+	if (existingConfigurationName !== undefined && existingConfiguration === undefined) {
+		vscode.window.showErrorMessage('Remote configuration for "' + existingConfigurationName + '" not found.');
+		return;
+	}
+
+	const title = existingConfigurationName ? 'Editing Remote "' + existingConfigurationName + '"' : 'Add Remote';
+
+	const name = (await vscode.window.showInputBox({
+		title,
+		prompt: 'Name to use for this remote configuration',
+		placeHolder: 'A friendly name to identify this remote configuration',
+		value: existingConfigurationName,
+		validateInput: async (value) => {
+			if (value.trim().length === 0) {
+				return {
+					message: 'Name should not be empty.',
+					severity: vscode.InputBoxValidationSeverity.Error
+				} as vscode.InputBoxValidationMessage;
+			}
+
+			if (existingConfigurationName !== undefined && value.trim().toLowerCase() === existingConfigurationName.trim().toLowerCase()) {
+				return;
+			}
+			
+			const currentNames = await configuration.getRemotesConfigurationNames();
+			for (const name of currentNames) {
+				if (name.trim().toLowerCase() === value.trim().toLowerCase()) {
+					return {
+						message: 'This name is already in use, please choose another one.',
+						severity: vscode.InputBoxValidationSeverity.Error
+					} as vscode.InputBoxValidationMessage;
+				}
+			}
+		}
+	}))?.trim();
+	
+	if (!name) {
+		return undefined;
+	}
+	
+	const host = (await vscode.window.showInputBox({
+		title,
+		prompt: 'SFTP Host',
+		placeHolder: 'sftp.example.com',
+		value: existingConfiguration?.host,
+		validateInput: (value) => {
+			if (value.trim().length === 0) {
+				return {
+					message: 'Host should not be empty.',
+					severity: vscode.InputBoxValidationSeverity.Error
+				} as vscode.InputBoxValidationMessage;
+			}
+		}
+	}))?.trim();
+	
+	if (!host) {
+		return undefined;
+	}
+	
+	const port = await vscode.window.showInputBox({
+		title,
+		prompt: 'SFTP Port',
+		placeHolder: 'Enter a valid port number, usually 22',
+		value:  existingConfiguration?.port?.toString() ?? '22',
+		validateInput: (value) => {
+			if (!/^[0-9]+$/.test(value)) {
+				return {
+					message: 'Port should be a valid number.',
+					severity: vscode.InputBoxValidationSeverity.Error
+				} as vscode.InputBoxValidationMessage;
+			}
+		}
+	});
+	
+	if (!port) {
+		return undefined;
+	}
+	
+	const username = (await vscode.window.showInputBox({
+		title,
+		prompt: 'SFTP Username',
+		placeHolder: 'Enter username to connect',
+		value: existingConfiguration?.username,
+		validateInput: (value) => {
+			if (value.trim().length === 0) {
+				return {
+					message: 'Username should not be empty.',
+					severity: vscode.InputBoxValidationSeverity.Error
+				} as vscode.InputBoxValidationMessage;
+			}
+		}
+	}))?.trim();
+	
+	if (!username) {
+		return undefined;
+	}
+	
+	const password = await vscode.window.showInputBox({
+		title,
+		prompt: 'SFTP Password (optional)',
+		placeHolder: 'Leave empty to not store password',
+		password: true,
+		value: existingConfiguration?.password
+	});
+	
+	const remotePath = await vscode.window.showInputBox({
+		title,
+		prompt: 'SFTP Remote Path (optional)',
+		placeHolder: 'Enter the remote path to use as root, leave empty for /',
+		value: existingConfiguration?.remotePath ?? '/'
+	});
+
+	return {
+		name,
+		host,
+		port,
+		username,
+		password,
+		remotePath
+	};
+};
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export async function activate(context: vscode.ExtensionContext) {
-
+	
 	// Use the console to output diagnostic information (console.log) and errors (console.error)
 	// This line of code will only be executed once when your extension is activated
 	console.log('Extension activated');
 	logger.init();
-
+	
 	const provider = new SFTPFileSystemProvider();
 	context.subscriptions.push(
-			vscode.workspace.registerFileSystemProvider(
-				'sftp', 
-				provider, 
-				{ 
-					isCaseSensitive: true
-				}
-			)
+		vscode.workspace.registerFileSystemProvider(
+			'sftp', 
+			provider, 
+			{ 
+				isCaseSensitive: true
+			}
+		)
 	);
-
+	
 	const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
 	item.text = '$(cloud) Ready';
 	item.tooltip = 'SFTP status';
 	item.show();
-
+	
 	fileDecorationManager.setStatusBarItem(item);
 	
 	context.subscriptions.push(item);
-
+	
 	// The command has been defined in the package.json file
 	// Now provide the implementation of the command with registerCommand
 	// The commandId parameter must match the command field in package.json
 	context.subscriptions.push(
-		vscode.commands.registerCommand('sftpfs.addRemote', () => {
-			vscode.window.showInputBox({
-				prompt: 'Enter a host...',
-				validateInput: (value) => {
-					if (value.trim().length === 0) {
-						return {
-							message: 'Host should not be empty.',
-							severity: vscode.InputBoxValidationSeverity.Error
-						} as vscode.InputBoxValidationMessage;
+		vscode.commands.registerCommand('sftpfs.addRemote', async () => {
+			const data = await addEditRemoteFormFunction(undefined);
+			if (!data) {
+				return;
+			}
+			
+			// Save configuration...
+			configuration.saveRemoteConfiguration(
+				data.name,
+				data.host,
+				parseInt(data.port),
+				data.username,
+				data.remotePath ?? '/',
+				data.password,
+			)
+			.then(() => {
+				vscode.window.showInformationMessage('Remote "' + data.name + "' added.", "Open configuration").then((res) => {
+					if (res === "Open configuration") {
+						vscode.commands.executeCommand('workbench.action.openSettings', '@ext:lewlie.sftpfs');
 					}
-				}
-			}).then((host) => {
-				if (!host) {
-					return;
-				}
-
-				vscode.window.showInputBox({
-					prompt: 'Enter port number...',
-					validateInput: (value) => {
-						if (!/^[0-9]+$/.test(value)) {
-							return {
-								message: 'Number not valid',
-								severity: vscode.InputBoxValidationSeverity.Error
-							} as vscode.InputBoxValidationMessage;
-						}
-					}
-				}).then((port) => {
-					if (!port) {
-						return;
-					}
-
-					vscode.window.showInputBox({
-						prompt: 'Enter username...',
-						validateInput: (value) => {
-							if (value.trim().length === 0) {
-								return {
-									message: 'Username should not be empty.',
-									severity: vscode.InputBoxValidationSeverity.Error
-								} as vscode.InputBoxValidationMessage;
-							}
-						}
-					}).then((username) => {
-						if (!username) {
-							return;
-						}
-
-						vscode.window.showInputBox({
-							prompt: 'Enter password...',
-							placeHolder: 'Leave empty to not use password',
-							password: true
-						}).then((password) => {
-							vscode.window.showInputBox({
-								prompt: 'Enter remote path to work...',
-								placeHolder: 'Leave empty to set /'
-							}).then((remotePath) => {
-								vscode.window.showInputBox({
-									prompt: 'Enter a name to use for this remote configuration (should be unique)',
-									validateInput: async (value) => {
-										if (value.trim().length === 0) {
-											return {
-												message: 'Name should not be empty.',
-												severity: vscode.InputBoxValidationSeverity.Error
-											} as vscode.InputBoxValidationMessage;
-										}
-
-										const currentNames = await configuration.getRemotesConfigurationNames();
-										for (const name of currentNames) {
-											if (name.trim().toLowerCase() === value.trim().toLowerCase()) {
-												return {
-													message: 'This name is already in use by another remote.',
-													severity: vscode.InputBoxValidationSeverity.Error
-												} as vscode.InputBoxValidationMessage;
-											}
-										}
-									}
-								}).then(async (name) => {
-									if (!name) {
-										return;
-									}
-
-									// Save configuration...
-									configuration.saveRemoteConfiguration(
-										name,
-										host,
-										parseInt(port),
-										username,
-										remotePath ?? '/',
-										password,
-									)
-									.then(() => {
-										vscode.window.showInformationMessage('Remote "' + name + "' added.", "Open configuration").then((res) => {
-											if (res === "Open configuration") {
-												vscode.commands.executeCommand('workbench.action.openSettings', '@ext:lewlie.sftpfs');
-											}
-										});
-									})
-									.catch((ex) => {
-										vscode.window.showErrorMessage('Something went wrong...');
-										logger.appendErrorToMessages('sftpfs.addRemote', 'Unable to save remote configuration.', ex);
-									});
-								});
-							});
-						});
-					});
 				});
+			})
+			.catch((ex) => {
+				vscode.window.showErrorMessage('Something went wrong...');
+				logger.appendErrorToMessages('sftpfs.addRemote', 'Unable to save remote configuration.', ex);
 			});
 		})
 	);
+	
+	context.subscriptions.push(
+		vscode.commands.registerCommand('sftpfs.editRemote', async (remoteName: string) => {
+			if (!remoteName || remoteName.trim().length === 0) {
+				const choosedRemote = await vscode.window.showQuickPick(
+					configuration.getRemotesConfigurationNames(),
+					{
+						placeHolder: 'Select a remote to edit...'
+					}
+				);
 
+				if (!choosedRemote) {
+					return;
+				}
+
+				remoteName = choosedRemote;
+			}
+			
+			const config = configuration.getRemoteConfiguration(remoteName);
+			if (!config) {
+				vscode.window.showErrorMessage('Remote configuration for "' + remoteName + '" not found.');
+				return;
+			}
+			
+			const data = await addEditRemoteFormFunction(remoteName);
+			if (!data) {
+				return;
+			}
+
+			config.host = data.host;
+			config.port = parseInt(data.port);
+			config.username = data.username;
+			config.password = data.password;
+			config.remotePath = data.remotePath ?? '/';
+
+			// Save configuration...
+			if (remoteName !== data.name) {
+				// Name changed, remove old and add new...
+				await configuration.removeRemoteConfiguration([remoteName]);
+			}
+			configuration.saveRemoteConfiguration(
+				data.name,
+				data.host,
+				parseInt(data.port),
+				data.username,
+				data.remotePath ?? '/',
+				data.password,
+			)
+			.then(() => {
+				let actionDescription = '';
+				if (remoteName !== data.name) {
+					actionDescription = 'Remote updated and renamed to "' + data.name + '"';
+				} else {
+					actionDescription = 'Remote "' + data.name + '" updated';
+				}
+				vscode.window.showInformationMessage(actionDescription, "Open configuration").then((res) => {
+					if (res === "Open configuration") {
+						vscode.commands.executeCommand('workbench.action.openSettings', '@ext:lewlie.sftpfs');
+					}
+				});
+			})
+			.catch((ex) => {
+				vscode.window.showErrorMessage('Something went wrong...');
+				logger.appendErrorToMessages('sftpfs.editRemote', 'Unable to save remote configuration.', ex);
+			});
+		})
+	);
+	
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.removeRemote', async () => {
 			const names = await configuration.getRemotesConfigurationNames();
-
+			
 			if (names.length === 0) {
 				vscode.window.showInformationMessage('Currently there is not any remote configured.', 'Add Remote').then((res) => {
 					if (res === 'Add Remote') {
@@ -165,7 +278,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				});
 				return;
 			}
-
+			
 			vscode.window.showQuickPick(
 				names,
 				{
@@ -187,11 +300,11 @@ export async function activate(context: vscode.ExtensionContext) {
 			});
 		})
 	);
-
+	
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.connectRemote', async () => {
-			const names = await configuration.getRemotesConfigurationNames();
-
+			const names = configuration.getRemotesConfigurationNames();
+			
 			if (names.length === 0) {
 				vscode.window.showInformationMessage('Currently there is not any remote configured.', 'Add Remote').then((res) => {
 					if (res === 'Add Remote') {
@@ -200,21 +313,69 @@ export async function activate(context: vscode.ExtensionContext) {
 				});
 				return;
 			}
-
-			vscode.window.showQuickPick(
-				names,
-				{
-					placeHolder: 'Select a remote to connect...'
+			
+			if (remoteConfigurationQuickPick === undefined) {
+				remoteConfigurationQuickPick = vscode.window.createQuickPick<QuickPickItemWithValue>();
+			}
+			const namesItems: QuickPickItemWithValue[] = [];
+			for (const name of names) {
+				const remoteConfiguration = configuration.getRemoteConfiguration(name)!;
+				namesItems.push({ 
+					value: 'remote:' + name,
+					label: name, 
+					iconPath: new vscode.ThemeIcon('symbol-folder'),
+					description: remoteConfiguration.host + ':' + remoteConfiguration.port,
+					buttons: [
+						{
+							tooltip: 'Edit configuration',
+							iconPath: new vscode.ThemeIcon('edit')
+						}
+					]
+				} as QuickPickItemWithValue);
+			}
+			remoteConfigurationQuickPick.items = [
+				{ 
+					value: 'internal:add_remote',
+					label: 'Add remote', 
+					description: 'Add a new remote configuration', 
+					iconPath: new vscode.ThemeIcon('add') 
+				},
+				{ 
+					kind: vscode.QuickPickItemKind.Separator 
+				} as any,
+				...namesItems
+			];
+			remoteConfigurationQuickPick.onDidTriggerItemButton(async (event) => {
+				const item = event.item as QuickPickItemWithValue;
+				if (item.value.startsWith('remote:')) {
+					remoteConfigurationQuickPick?.hide();
+					const remoteName = item.value.replace('remote:', '');
+					vscode.commands.executeCommand('sftpfs.editRemote', remoteName);
 				}
-			).then(async (remoteName) => {
-				if (remoteName) {
-					const config = await configuration.getRemoteConfiguration(remoteName);
+			});
+			remoteConfigurationQuickPick.onDidAccept(async () => {
+				if (!remoteConfigurationQuickPick) {
+					return;
+				}
+				const selectedItem = remoteConfigurationQuickPick.selectedItems[0] as QuickPickItemWithValue;
+				if (!selectedItem) {
+					return;
+				}
+				
+				if (selectedItem.value === 'internal:add_remote') {
+					remoteConfigurationQuickPick.hide();
+					vscode.commands.executeCommand('sftpfs.addRemote');
+				} else if (selectedItem.value.startsWith('remote:')) {
+					remoteConfigurationQuickPick.hide();
+					const remoteName = selectedItem.value.replace('remote:', '');
+					const config = configuration.getRemoteConfiguration(remoteName);
+					
 					if (config === undefined) {
 						logger.appendLineToMessages('Unexpected, configuration for remote "' + remoteName + '" is undefined.');
 						vscode.window.showErrorMessage('Failed to get configuration for remote "' + remoteName + '".');
 						return;
 					}
-
+					
 					// ALready open?
 					if (vscode.workspace.workspaceFolders !== undefined) {
 						for (const workspaceDir of vscode.workspace.workspaceFolders) {
@@ -224,9 +385,9 @@ export async function activate(context: vscode.ExtensionContext) {
 							}
 						}
 					}
-
+					
 					var workDir = await configuration.getWorkDirForRemote(remoteName);
-
+					
 					if (workDir === undefined) {
 						await vscode.window.showInformationMessage(
 							'You have not configured a local folder to synchronize files from this remote, please select a folder.',
@@ -234,7 +395,7 @@ export async function activate(context: vscode.ExtensionContext) {
 								modal: true
 							}
 						);
-
+						
 						const dir = await vscode.window.showOpenDialog({
 							canSelectFiles: false,
 							canSelectFolders: true,
@@ -246,7 +407,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						if (dir === undefined || dir.length === 0) {
 							return;
 						}
-
+						
 						const dirPath = dir[0];
 						try {
 							const stats = await vscode.workspace.fs.stat(dirPath);
@@ -275,18 +436,18 @@ export async function activate(context: vscode.ExtensionContext) {
 						}
 						
 						workDir = dirPath.path;
-
+						
 						try {
 							await configuration.setWorkDirForRemote(remoteName, workDir);
 						} catch(ex: any) {
 							logger.appendErrorToMessages('sftpfs.connectRemote', 'Failed to save workspace configuration for remote name "' + remoteName + '", path to save: ' + dirPath.path, ex);
-								vscode.window.showErrorMessage('Failed to initialize workdir.');
-								return;
+							vscode.window.showErrorMessage('Failed to initialize workdir.');
+							return;
 						}
 						logger.appendLineToMessages('Using workdir for remote connection "' + remoteName + '": ' + workDir);
 					} else {
 						logger.appendLineToMessages('Workdir loaded for remote connection "' + remoteName + '": ' + workDir);
-
+						
 						const dirPath = vscode.Uri.file(workDir);
 						try {
 							const stats = await vscode.workspace.fs.stat(dirPath);
@@ -314,7 +475,7 @@ export async function activate(context: vscode.ExtensionContext) {
 							}
 						}
 					}
-
+					
 					if(!connectionManager.poolExists(remoteName)) {
 						console.log('Creating connection pool!');
 						await connectionManager.createPool({
@@ -322,7 +483,7 @@ export async function activate(context: vscode.ExtensionContext) {
 							remoteName: remoteName
 						});
 					}
-
+					
 					vscode.window.withProgress(
 						{
 							location: vscode.ProgressLocation.Notification, // Location of the progress indicator
@@ -339,38 +500,39 @@ export async function activate(context: vscode.ExtensionContext) {
 							const virtualFolderUri = vscode.Uri.parse('sftp://' + remoteName + '/' + removeLeadingSlash);
 							console.warn(virtualFolderUri);
 							vscode.workspace.updateWorkspaceFolders(
-									vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders.length : 0,
-									null,
-									{ 
-										uri: virtualFolderUri, 
-										name: "SFTP - " + remoteName + " - " + (config.remotePath ?? '/')
-									}
+								vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders.length : 0,
+								null,
+								{ 
+									uri: virtualFolderUri, 
+									name: "SFTP - " + remoteName + " - " + (config.remotePath ?? '/')
+								}
 							);
 						}
 					);
 				}
 			});
+			remoteConfigurationQuickPick.show();
 		})
 	);
-
+	
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.showInSystemExplorer', async (uri: vscode.Uri) => {
 			try {
 				logger.appendLineToMessages("Show in system explorer for file, scheme=" + uri.scheme + ", authority=" + uri.authority + ", path=" + uri.path);
-
+				
 				const provider = SFTPFileSystemProvider.instance;
 				if (provider === undefined) {
 					logger.appendLineToMessages('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					return;
 				}
-
+				
 				var statFile = await provider.stat(uri);
-
+				
 				const remoteName = provider.getRemoteName(uri);
 				const workDirPath = provider.getSystemProviderData(remoteName)!.workDirPath;
 				const calculatedLocalFile = workDirPath.with({ path: upath.join(workDirPath.fsPath, uri.path) });
-
+				
 				if (statFile.type === vscode.FileType.Directory) {
 					// is a directory, so at least we should make the directory local.
 					const localFileStats = await provider.statLocalFileByUri(calculatedLocalFile);
@@ -379,7 +541,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						logger.appendLineToMessages('Making folder... ' + calculatedLocalFile.fsPath);
 						await vscode.workspace.fs.createDirectory(calculatedLocalFile);
 					}
-
+					
 					// open...
 					logger.appendLineToMessages('Opening folder... ' + calculatedLocalFile.fsPath);
 					await provider.openLocalFolderInExplorer(calculatedLocalFile);
@@ -387,11 +549,11 @@ export async function activate(context: vscode.ExtensionContext) {
 					if (statFile.type === vscode.FileType.SymbolicLink) {
 						uri = await provider.followSymbolicLinkAndGetRealPath(uri);
 					}
-
+					
 					// Download if needed
 					logger.appendLineToMessages('Downloading file... ' + uri.path);
 					await provider.downloadRemoteFileToLocalIfNeeded(uri, false, 'passive', false);
-
+					
 					logger.appendLineToMessages('Opening file... ' + calculatedLocalFile.fsPath);
 					await provider.openLocalFolderInExplorer(calculatedLocalFile);
 				}
@@ -401,7 +563,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		})
 	);
-
+	
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.removeLocalFile', async (uri: vscode.Uri) => {
 			try {
@@ -411,23 +573,23 @@ export async function activate(context: vscode.ExtensionContext) {
 					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					return;
 				}
-
+				
 				// Stat local file
 				const localFile = provider.getLocalFileUri(uri.authority, uri);
 				const localStat = await provider.statLocalFileByUri(localFile);
-
-        if (localStat === undefined) {
-            vscode.window.showInformationMessage('There is not a local version of this file.');
-            return;
-        }
-
+				
+				if (localStat === undefined) {
+					vscode.window.showInformationMessage('There is not a local version of this file.');
+					return;
+				}
+				
 				if (localStat.type === vscode.FileType.Directory) {
 					const res = await vscode.window.showInformationMessage('All files stored at ' + localFile.fsPath + ' on your local storage will be deleted. This will only delete your local files, leaving the remote files untouched. Do you wish to continue?', { modal: true }, 'Yes', 'No');
 					if (res === 'No' || res === undefined) {
 						return;
 					}
 				}
-
+				
 				await vscode.window.withProgress({
 					cancellable: true,
 					location: vscode.ProgressLocation.Notification,
@@ -438,7 +600,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				});
 				
 				vscode.window.showInformationMessage('Local version of file "' + upath.basename(uri.path) + '" removed.');
-
+				
 				// Send a refresh for the explorer
 				provider.sendUpdateForRootFolder();
 			} catch(ex: any) {
@@ -447,7 +609,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		})
 	);
-
+	
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.uploadLocalFolder', async (uri: vscode.Uri) => {
 			try {
@@ -457,7 +619,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					return;
 				}
-
+				
 				await vscode.window.withProgress({
 					cancellable: true,
 					location: vscode.ProgressLocation.Notification,
@@ -475,7 +637,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		})
 	);
-
+	
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.downloadRemoteFolder', async (uri: vscode.Uri) => {
 			try {
@@ -485,7 +647,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					return;
 				}
-
+				
 				await vscode.window.withProgress({
 					cancellable: true,
 					location: vscode.ProgressLocation.Notification,
@@ -503,7 +665,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		})
 	);
-
+	
 	
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.refreshRemoteFolder', async (uri: vscode.Uri) => {
@@ -515,7 +677,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					return;
 				}
-
+				
 				await vscode.window.withProgress({
 					cancellable: true,
 					location: vscode.ProgressLocation.Notification,
@@ -533,7 +695,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		})
 	);
-
+	
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.reconnect', async () => {
 			const response = await vscode.window.showInformationMessage(
@@ -544,14 +706,14 @@ export async function activate(context: vscode.ExtensionContext) {
 				'Yes',
 				'No'
 			);
-
+			
 			if (response === 'No' || response === undefined) {
 				return;
 			}
-
+			
 			// Ok, attempt a reconnection.
 			await connectionManager.reconnect();
-
+			
 			if (vscode.workspace.workspaceFolders !== undefined) {
 				for (const workspace of vscode.workspace.workspaceFolders) {
 					if (workspace.uri.scheme === 'sftp') {
@@ -562,15 +724,15 @@ export async function activate(context: vscode.ExtensionContext) {
 					}
 				}
 			}
-
+			
 		})
 	);
-
+	
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.disconnectDirectRemote', async (uri: vscode.Uri) => {
 			try {
 				const remoteName = uri.authority;
-
+				
 				const response = await vscode.window.showInformationMessage(
 					'Are you sure to disconnect? All current operation will be interrupted and files can be corrupted, it is recommended to cancel current running operations before disconnect from server.',
 					{
@@ -579,14 +741,14 @@ export async function activate(context: vscode.ExtensionContext) {
 					'Yes',
 					'No'
 				);
-
+				
 				if (response === 'No' || response === undefined) {
 					return;
 				}
-
+				
 				// Ok, attempt a disconnect.
 				await connectionManager.get(remoteName)?.close();
-
+				
 				// Close workspace
 				if (vscode.workspace.workspaceFolders !== undefined) {
 					var index = -1;
@@ -603,7 +765,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						if (provider !== undefined) {
 							await provider.dispose();
 						}
-
+						
 						console.info('Closing workspace at ' + index);
 						await vscode.commands.executeCommand('workbench.action.closeAllEditors');
 						setTimeout(() => {
@@ -617,37 +779,37 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		})
 	);
-
+	
 	context.subscriptions.push(
 		vscode.window.registerFileDecorationProvider(fileDecorationManager)
 	);
-
+	
 	context.subscriptions.push(
-    vscode.commands.registerCommand('sftpfs.bulkFileUpload', (uri: vscode.Uri) => {
-      const panel = vscode.window.createWebviewPanel(
-        'sftpFsBulkFileUpload',
-        'Bulk File Upload',
-        vscode.ViewColumn.One,
-        {
-          enableScripts: true, // Allow JavaScript in the webview
+		vscode.commands.registerCommand('sftpfs.bulkFileUpload', (uri: vscode.Uri) => {
+			const panel = vscode.window.createWebviewPanel(
+				'sftpFsBulkFileUpload',
+				'Bulk File Upload',
+				vscode.ViewColumn.One,
+				{
+					enableScripts: true, // Allow JavaScript in the webview
 					retainContextWhenHidden: true
-        }
-      );
-
-      const bootstrapMinJs = vscode.Uri.joinPath(context.extensionUri, 'webview', 'bootstrap.bundle.min.js');
-      const bootstrapMinCss = vscode.Uri.joinPath(context.extensionUri, 'webview', 'bootstrap.min.css');
-
-      const bootstrapMinJsUri = panel.webview.asWebviewUri(bootstrapMinJs);
-      const bootstrapMinCssUri = panel.webview.asWebviewUri(bootstrapMinCss);
-      panel.webview.html = getWebviewContent(uri, bootstrapMinJsUri, bootstrapMinCssUri);
-
+				}
+			);
+			
+			const bootstrapMinJs = vscode.Uri.joinPath(context.extensionUri, 'webview', 'bootstrap.bundle.min.js');
+			const bootstrapMinCss = vscode.Uri.joinPath(context.extensionUri, 'webview', 'bootstrap.min.css');
+			
+			const bootstrapMinJsUri = panel.webview.asWebviewUri(bootstrapMinJs);
+			const bootstrapMinCssUri = panel.webview.asWebviewUri(bootstrapMinCss);
+			panel.webview.html = getWebviewContent(uri, bootstrapMinJsUri, bootstrapMinCssUri);
+			
 			var files: FileUploadRequest[] = [];
 			var previousTask: NodeJS.Timeout | undefined = undefined;
 			var previousTaskTime = 0;
-
+			
 			const refreshList = () => {
 				clearTimeout(previousTask);
-
+				
 				const doAction = () => {
 					const filesWithoutContent = files.map((f) => {
 						return {
@@ -660,7 +822,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						files: filesWithoutContent
 					});
 				};
-
+				
 				if (Date.now() - previousTaskTime > 100) {
 					doAction();
 					previousTaskTime = Date.now();
@@ -670,79 +832,79 @@ export async function activate(context: vscode.ExtensionContext) {
 					}, 150);
 				}
 			};
-
+			
 			panel.webview.onDidReceiveMessage(
 				async (message) => {
 					switch (message.command) {
 						case 'uploadList':
-							const res = await vscode.window.showInformationMessage(
-								files.length + ' files will be uploaded to ' + uri.path + ', do you want to proceed?',
-								{
-									modal: true
-								},
-								'Yes',
-								'No'
-							);
-							if (res === undefined || res === 'No') {
-								return;
-							}
-
-							panel.webview.postMessage({
-								command: 'uploadInProgress'
-							});
-
-							// Perform upload.
-							try {
-								// Clear list and send to web view.
-								files = [];
-								refreshList();
-
-								panel.webview.postMessage({
-									command: 'uploadEnd'
-								});
-							} catch(ex: any) {
-								vscode.window.showErrorMessage(ex.message);
-								logger.appendErrorToMessages('sftpfs.bulkFileUpload', 'Error to bulk upload...', ex);
-
-								panel.webview.postMessage({
-									command: 'uploadEnd'
-								});
-							}
-							break;
-						case 'cancelList':
+						const res = await vscode.window.showInformationMessage(
+							files.length + ' files will be uploaded to ' + uri.path + ', do you want to proceed?',
+							{
+								modal: true
+							},
+							'Yes',
+							'No'
+						);
+						if (res === undefined || res === 'No') {
+							return;
+						}
+						
+						panel.webview.postMessage({
+							command: 'uploadInProgress'
+						});
+						
+						// Perform upload.
+						try {
+							// Clear list and send to web view.
 							files = [];
 							refreshList();
-							vscode.window.showInformationMessage('File list cleared.');
-							break;
-						case 'fileDropped':
-							const file = message.file as FileUploadRequest;
 							
-							files = files.filter((f) => {
-								return f.name.toLowerCase() !== file.name.toLowerCase();
+							panel.webview.postMessage({
+								command: 'uploadEnd'
 							});
-							files.push(file);
-
-							refreshList();
-							break;
+						} catch(ex: any) {
+							vscode.window.showErrorMessage(ex.message);
+							logger.appendErrorToMessages('sftpfs.bulkFileUpload', 'Error to bulk upload...', ex);
+							
+							panel.webview.postMessage({
+								command: 'uploadEnd'
+							});
+						}
+						break;
+						case 'cancelList':
+						files = [];
+						refreshList();
+						vscode.window.showInformationMessage('File list cleared.');
+						break;
+						case 'fileDropped':
+						const file = message.file as FileUploadRequest;
+						
+						files = files.filter((f) => {
+							return f.name.toLowerCase() !== file.name.toLowerCase();
+						});
+						files.push(file);
+						
+						refreshList();
+						break;
 						case 'showInfoMessage':
-							vscode.window.showInformationMessage(message.content);
-							break;
+						vscode.window.showInformationMessage(message.content);
+						break;
 						case 'showWarningMessage':
-							vscode.window.showWarningMessage(message.content);
-							break;
+						vscode.window.showWarningMessage(message.content);
+						break;
 						case 'showErrorMessage':
-							vscode.window.showErrorMessage(message.content);
-							break;
+						vscode.window.showErrorMessage(message.content);
+						break;
 					}
 				},
 				undefined,
 				context.subscriptions
 			);
-
-
-    })
-  );
-
+			
+			
+		})
+	);
+	
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.downloadRemoteFile', async (uri: vscode.Uri) => {
 			try {
@@ -752,7 +914,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					return;
 				}
-
+				
 				await provider.downloadRemoteFileToLocalIfNeeded(uri, false, 'passive', true);
 				
 				item.text = '$(cloud) Ready';
@@ -764,7 +926,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		})
 	);
-
+	
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.uploadLocalFile', async (uri: vscode.Uri) => {
 			try {
@@ -774,9 +936,9 @@ export async function activate(context: vscode.ExtensionContext) {
 					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					return;
 				}
-
+				
 				logger.appendLineToMessages('[sftpfs.uploadLocalFile] ' + uri.path);
-
+				
 				const localPath = provider.getLocalFileUri(uri.authority, uri);
 				await provider.uploadLocalFileToRemoteIfNeeded(uri.authority, localPath, 'passive', true);
 				
@@ -789,7 +951,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		})
 	);
-
+	
 	context.subscriptions.push(
 		vscode.commands.registerCommand('sftpfs.refreshDirectory', async (uri: vscode.Uri) => {
 			try {
@@ -799,10 +961,10 @@ export async function activate(context: vscode.ExtensionContext) {
 					vscode.window.showErrorMessage('Unexpected: Cannot get file provider for remote "' + uri.authority + '".');
 					return;
 				}
-
+				
 				item.text = '$(cloud) Refreshing directory ' + uri.path;
 				logger.appendLineToMessages('[sftpfs.refreshDirectory] ' + uri.path);
-
+				
 				await provider.refreshDirectoryContent(uri);
 				
 				item.text = '$(cloud) Ready';
@@ -817,7 +979,7 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 function getWebviewContent(uri: vscode.Uri, bootstrapJs: vscode.Uri, bootstrapCss: vscode.Uri) {
-  return `
+	return `
     <!DOCTYPE html>
     <html lang="en" data-bs-theme="dark">
     <head>
@@ -846,7 +1008,7 @@ function getWebviewContent(uri: vscode.Uri, bootstrapJs: vscode.Uri, bootstrapCs
           border-color: #4CAF50;
           color: #4CAF50;
         }
-
+	
 				.main-box {
 					margin-top: 50px;
 					display: flex;
@@ -856,22 +1018,22 @@ function getWebviewContent(uri: vscode.Uri, bootstrapJs: vscode.Uri, bootstrapCs
       </style>
     </head>
     <body>
-
+	
 			<div class="main-box" id="mainBox">
 				<div>
 					Drag files to upload to the remote folder <b>${uri.path}</b>.
 				</div>
-
+	
 				<div class="drop-zone" id="dropZone">Drag files here</div>
-
+	
 				<hr>
-
+	
 				<div class="file-list mt-3">
 					<h5 class="mb-1 d-flex justify-content-between">
 						<div><span id="file-list-count">0</span> Files Selected</div>
 						<div><span class="btn btn-primary" onClick="upload()">Upload files</span> <span class="btn btn-danger ms-2" onClick="cancel()">Cancel</span></div>
 					</h5>
-
+	
 					<table style="margin-top: 30px;" class="table table-striped">
 						<thead class="bg-primary">
 							<tr class="bg-primary">
@@ -897,32 +1059,32 @@ function getWebviewContent(uri: vscode.Uri, bootstrapJs: vscode.Uri, bootstrapCs
 						command: 'cancelList'
 					});
 				}
-
+	
 				function upload() {
 					vscode.postMessage({ 
 						command: 'uploadList'
 					});
 				}
-
+	
         const vscode = acquireVsCodeApi();
-
+	
         const mainBox = document.getElementById('mainBox');
         const dropZone = document.getElementById('dropZone');
-
+	
         // Add drag and drop event listeners
         mainBox.addEventListener('dragover', (event) => {
           event.preventDefault();
           dropZone.classList.add('drag-over');
         });
-
+	
         mainBox.addEventListener('dragleave', () => {
           dropZone.classList.remove('drag-over');
         });
-
+	
         mainBox.addEventListener('drop', (event) => {
 					event.preventDefault();
 					dropZone.classList.remove('drag-over');
-
+	
 					const filesArray = Array.from(event.dataTransfer.files);
 					if (filesArray.length > 1000) {
 						vscode.postMessage({ 
@@ -947,7 +1109,7 @@ function getWebviewContent(uri: vscode.Uri, bootstrapJs: vscode.Uri, bootstrapCs
 							});
 							return;
 						};
-
+	
 						const reader = new FileReader();
 						
 						reader.onload = () => {
@@ -971,12 +1133,12 @@ function getWebviewContent(uri: vscode.Uri, bootstrapJs: vscode.Uri, bootstrapCs
 							});
 							console.error('Error reading file:', error);
 						};
-
+	
 						// Read the file content as text (you can also use readAsDataURL for binary files)
 						reader.readAsDataURL(file);
 					});
         });
-
+	
         // Handle messages from the extension
         window.addEventListener('message', (event) => {
           const message = event.data;
@@ -987,7 +1149,7 @@ function getWebviewContent(uri: vscode.Uri, bootstrapJs: vscode.Uri, bootstrapCs
 								document.getElementById('file-list').innerHTML = '<tr><td colspan="4" class="text-center">No files selected.</td></tr>';
 								return;
 							}
-
+	
 							document.getElementById('file-list-count').innerText = '' + message.files.length;
 							var finalHTML = '';
 							for (const file of message.files) {
@@ -1009,7 +1171,7 @@ function getWebviewContent(uri: vscode.Uri, bootstrapJs: vscode.Uri, bootstrapCs
 export async function deactivate() {
 	console.log('Extension deactivated');
 	await connectionManager.destroyAll();
-
+	
 	const provider = SFTPFileSystemProvider.instance;
 	console.log('Disposing file system provider...');
 	provider?.dispose();

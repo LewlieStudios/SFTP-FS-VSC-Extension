@@ -39,59 +39,78 @@
     "commands": [
       {
         "command": "sftpfs.addRemote",
-        "title": "SFTP FS: Add Remote..."
+        "title": "Add Remote...",
+        "category": "SFTP FS"
+      },
+      {
+        "command": "sftpfs.editRemote",
+        "title": "Edit Remote...",
+        "category": "SFTP FS"
       },
       {
         "command": "sftpfs.removeRemote",
-        "title": "SFTP FS: Remove Remote..."
+        "title": "Remove Remote...",
+        "category": "SFTP FS"
       },
       {
         "command": "sftpfs.connectRemote",
-        "title": "SFTP FS: Connect to Remote..."
+        "title": "Connect to Remote...",
+        "category": "SFTP FS"
       },
       {
         "command": "sftpfs.showInSystemExplorer",
-        "title": "Reveal in File Explorer"
+        "title": "Reveal in File Explorer",
+        "category": "SFTP FS"
       },
       {
         "command": "sftpfs.downloadRemoteFolder",
-        "title": "SFTP Dir Sync: 1. Remote → Local (download)"
+        "title": "SFTP Dir Sync: 1. Remote → Local (download)",
+        "category": "SFTP FS"
       },
       {
         "command": "sftpfs.uploadLocalFolder",
-        "title": "SFTP Dir Sync: 2. Local → Remote (upload)"
+        "title": "SFTP Dir Sync: 2. Local → Remote (upload)",
+        "category": "SFTP FS"
       },
       {
         "command": "sftpfs.refreshRemoteFolder",
-        "title": "SFTP Dir Sync: 3. Local ↔ Remote (both)"
+        "title": "SFTP Dir Sync: 3. Local ↔ Remote (both)",
+        "category": "SFTP FS"
       },
       {
         "command": "sftpfs.downloadRemoteFile",
-        "title": "SFTP File Sync: 1. Remote → Local (download)"
+        "title": "SFTP File Sync: 1. Remote → Local (download)",
+        "category": "SFTP FS"
       },
       {
         "command": "sftpfs.uploadLocalFile",
-        "title": "SFTP File Sync: 2. Local → Remote (upload)"
+        "title": "SFTP File Sync: 2. Local → Remote (upload)",
+        "category": "SFTP FS"
       },
       {
         "command": "sftpfs.removeLocalFile",
-        "title": "SFTP: Delete local files"
+        "title": "Delete local files",
+        "category": "SFTP FS"
       },
       {
         "command": "sftpfs.reconnect",
-        "title": "SFTP: Reconnect"
+        "title": "SFTP: Reconnect",
+        "category": "SFTP FS"
       },
       {
         "command": "sftpfs.disconnectDirectRemote",
-        "title": "SFTP: Disconnect"
+        "title": "SFTP: Disconnect",
+        "category": "SFTP FS"
       },
       {
         "command": "sftpfs.bulkFileUpload",
-        "title": "Bulk file upload..."
+        "title": "Bulk file upload...",
+        "category": "SFTP FS"
       },
       {
         "command": "sftpfs.refreshDirectory",
-        "title": "SFTP Dir: Refresh directory content"
+        "title": "SFTP Dir: Refresh directory content",
+        "category": "SFTP FS"
       }
     ],
     "menus": {
@@ -155,6 +174,10 @@
       "commandPalette": [
         {
           "command": "sftpfs.bulkFileUpload",
+          "when": "false"
+        },
+        {
+          "command": "sftpfs.removeLocalFile",
           "when": "false"
         },
         {
@@ -279,7 +302,7 @@
         },
         "sftpfs.remotes": {
           "type": "object",
-          "description": "Remote configurations, you may not require to edit this section manually (except if you want to add advanced configurations), you can use the action 'SFTP FS: Add remote...' instead.",
+          "description": "Remote configurations, you may not require to edit this section manually (except if you want to add advanced configurations), you can use the action 'Add remote...' instead.",
           "patternProperties": {
             ".*": {
               "type": "object",
