@@ -297,7 +297,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                     // Read the entire directory and cache, to speedup stat operation
                     // Note: readdir already gets the stats of all files, so we can use that result
                     // to get the stat of the requested file...
-                    var parentDirStatResult: FileEntryWithStats[] | undefined = undefined;
+                    let parentDirStatResult: FileEntryWithStats[] | undefined = undefined;
                     
                     if (this.shouldCacheDirectory(parentDirUri)) {
                         this.extension.logger.appendLineToMessages('[stat] [cache] Should cache this directory: ' + parentDirUri.path);
@@ -338,7 +338,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                     }
                     
                     try {
-                        var statsToUse: Stats | vscode.FileStat | undefined = undefined;
+                        let statsToUse: Stats | vscode.FileStat | undefined = undefined;
                         
                         // try to get the file from the readdir result...
                         if (parentDirStatResult !== undefined) {
@@ -367,7 +367,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                             });
                         }
                         
-                        var isLocalOnly = false;
+                        let isLocalOnly = false;
                         
                         // Undefined means that the file does not exists on remote...
                         if (statsToUse === undefined) {
@@ -427,7 +427,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
         
         return new Promise<vscode.FileStat>(async (resolve, reject) => {
             try {
-                var fileType = (isLocalOnly) ? (fileStats as vscode.FileStat).type : this.getFileTypeByStats(fileStats as Stats);
+                let fileType = (isLocalOnly) ? (fileStats as vscode.FileStat).type : this.getFileTypeByStats(fileStats as Stats);
                 
                 if (fileType === vscode.FileType.SymbolicLink) {
                     if (isLocalOnly) {
@@ -444,7 +444,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                 if (isLocalOnly) {
                     this.extension.sftpFileDecoration.setLocalNewFileDecoration(uri);
                 } else {
-                    var calculatedLocalFile = this.getLocalFileUri(remoteName, uri);
+                    let calculatedLocalFile = this.getLocalFileUri(remoteName, uri);
                     const lock = this.addWatchLockFromLocalUri(calculatedLocalFile);
                     
                     try {
@@ -523,7 +523,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                         const localFiles = await vscode.workspace.fs.readDirectory(localUri);
                         
                         localFiles.forEach((local) => {
-                            var found = false;
+                            let found = false;
                             
                             if (fileNames !== undefined) {
                                 for (const fileName of fileNames) {
@@ -584,8 +584,8 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                         );
                         
                         for (const entry of stats) {
-                            var entryStats = entry.attrs;
-                            var fileType = this.getFileTypeByStats(entryStats);
+                            let entryStats = entry.attrs;
+                            let fileType = this.getFileTypeByStats(entryStats);
                             
                             if (fileType === vscode.FileType.SymbolicLink) {
                                 entryStats = await this.followSymbolicLinkAndGetStats(connection, uri.with({ path: upath.join(uri.path, entry.filename) }));
@@ -595,7 +595,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                             result.push([entry.filename, fileType]);
                             
                             // Determine if there is a local version of this file.
-                            var calculatedLocalFile = workDirPath.with({ path: upath.join(workDirPath.fsPath, upath.join(uri.path, entry.filename)) });
+                            let calculatedLocalFile = workDirPath.with({ path: upath.join(workDirPath.fsPath, upath.join(uri.path, entry.filename)) });
                             const localFileStat = await this.statLocalFileByUri(calculatedLocalFile);
                             if (localFileStat === undefined) {
                                 if (fileType !== vscode.FileType.Directory) {
@@ -1016,7 +1016,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
             }
             
             // Check if old uri exists, if not, then a local file is renamed!
-            var isOldLocal = false;
+            let isOldLocal = false;
             
             try {
                 await this.$stat(oldUri, false, 'passive');
@@ -1042,7 +1042,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
             if (isOldLocal) {
                 try {
                     // Special logic! First we need to verify if the target exists on remote...
-                    var targetExistsRemote = true;
+                    let targetExistsRemote = true;
                     try {
                         await this.$stat(newUri, false, 'passive');
                     } catch(ex: any) {
@@ -1150,8 +1150,8 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
     }
     
     async followSymbolicLinkAndGetRealPath(uri: vscode.Uri, connectionSFTP: SFTPWrapper | undefined = undefined): Promise<vscode.Uri> {
-        var connection = connectionSFTP;
-        var connectionProvider: ConnectionProvider | undefined = undefined;
+        let connection = connectionSFTP;
+        let connectionProvider: ConnectionProvider | undefined = undefined;
         const remoteName = this.getRemoteName(uri);
         
         if (connection === undefined) {
@@ -1331,7 +1331,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                         // If remote file is newer than our copy, remote file will be downloaded.
                         // If our local file is newer than remote file, local file will be uploaded.
                         // If both files has the same size and mtime, then nothing is done.
-                        var operationsToPerform = await this.createOperationListForBothSync(remoteName, localFiles, remoteFiles, progress);
+                        let operationsToPerform = await this.createOperationListForBothSync(remoteName, localFiles, remoteFiles, progress);
                         
                         // Ask user if proceed...
                         const totalUpload = operationsToPerform.filter((o) => o[1] === 'UPLOAD_LOCAL').length;
@@ -1433,7 +1433,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                 
                 const res: [vscode.Uri, SyncOperationType][] = [];
                 const processedLocalList: vscode.Uri[] = [];
-                var operationPromises: Promise<void>[] = [];
+                let operationPromises: Promise<void>[] = [];
                 
                 this.extension.vscodeStatusBarItem.text = '$(search) Creating operation list to perform, please wait...';
                 progress.report({});
@@ -1501,7 +1501,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                     }
                     
                     // First, skip if the file is already processed.
-                    var found = false;
+                    let found = false;
                     for (const processedEntry of processedLocalList) {
                         if (processedEntry.path.toLowerCase() === localUri.path.toLowerCase()) {
                             found = true;
@@ -1703,8 +1703,8 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                                 const fileName = fileEntry[0];
                                 
                                 this.extension.logger.appendLineToMessages('[upload-from-local] Processing file entry: ' + fileName);
-                                var localPath = uri.with({ path: upath.join(uri.path, fileName) });
-                                var fileType = fileEntry[1];
+                                let localPath = uri.with({ path: upath.join(uri.path, fileName) });
+                                let fileType = fileEntry[1];
                                 
                                 if (fileType === vscode.FileType.SymbolicLink) {
                                     this.extension.logger.appendLineToMessages('[upload-from-local] Cannot follow symbolic link: ' + localPath.path);
@@ -1796,8 +1796,8 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                                     
                                     this.extension.logger.appendLineToMessages('[download-from-remote] Processing file entry: ' + fileEntry.filename);
                                     
-                                    var remotePath = uri.with({ path: upath.join(uri.path, fileEntry.filename) });
-                                    var fileType = (fileEntry.attrs.isFile() ? vscode.FileType.File : (fileEntry.attrs.isDirectory() ? vscode.FileType.Directory : (fileEntry.attrs.isSymbolicLink() ? vscode.FileType.SymbolicLink : vscode.FileType.Unknown)));
+                                    let remotePath = uri.with({ path: upath.join(uri.path, fileEntry.filename) });
+                                    let fileType = (fileEntry.attrs.isFile() ? vscode.FileType.File : (fileEntry.attrs.isDirectory() ? vscode.FileType.Directory : (fileEntry.attrs.isSymbolicLink() ? vscode.FileType.SymbolicLink : vscode.FileType.Unknown)));
                                     
                                     if (fileType === vscode.FileType.SymbolicLink) {
                                         this.extension.logger.appendLineToMessages('[download-from-remote] Following symbolic link: ' + remotePath.path);
@@ -1978,7 +1978,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                 const remoteUri = this.getRemoteFileUri(remoteName, localUri);
                 
                 // Check if file exists
-                var remoteStat: vscode.FileStat | undefined = undefined;
+                let remoteStat: vscode.FileStat | undefined = undefined;
                 
                 try {
                     remoteStat = await this.$stat(remoteUri, false, 'heavy');
@@ -2235,7 +2235,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                 try {
                     const fileType = this.getFileTypeByStats(remoteStat);
                     
-                    var realStats = remoteStat;
+                    let realStats = remoteStat;
                     if (fileType === vscode.FileType.SymbolicLink) {
                         if (connection === undefined) {
                             await this.releaseConnection(remoteName, connectionProvider);
@@ -2318,7 +2318,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
                     // TODO: Configuration, if more than 30mb show progress
                     const fileSize = remoteStat.size;
                     const filename = this.getFilename(uri);
-                    var res : Uint8Array | undefined = undefined;
+                    let res : Uint8Array | undefined = undefined;
                     
                     // TODO: Configuration
                     this.extension.logger.appendLineToMessages('[download-file ' + filename + '] [fast-get] remote: ' + uri.path + ', local: ' + calculatedLocalFile.fsPath);
@@ -2547,7 +2547,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
         const workdirPathLowercase = workDirPath.path.toLowerCase();
         const pathLowerCase = uri.path.toLowerCase();
         
-        var basePath = uri.path;
+        let basePath = uri.path;
         if (pathLowerCase.includes(workdirPathLowercase)) {
             basePath = uri.path.substring(workdirPathLowercase.length, uri.path.length);
         }

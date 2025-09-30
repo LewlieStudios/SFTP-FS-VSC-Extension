@@ -14,7 +14,7 @@ export class ShowSystemExplorerCommand extends BaseCommand {
         return;
       }
       
-      var statFile = await provider.stat(uri);
+      let statFile = await provider.stat(uri);
       
       const remoteName = provider.getRemoteName(uri);
       const workDirPath = provider.getSystemProviderData(remoteName)!.workDirPath;

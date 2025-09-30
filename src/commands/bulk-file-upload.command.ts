@@ -21,9 +21,9 @@ export class BulkFileUploadCommand extends BaseCommand {
     const bootstrapMinCssUri = panel.webview.asWebviewUri(bootstrapMinCss);
     panel.webview.html = this.getWebviewContent(uri, bootstrapMinJsUri, bootstrapMinCssUri);
     
-    var files: FileUploadRequest[] = [];
-    var previousTask: NodeJS.Timeout | undefined = undefined;
-    var previousTaskTime = 0;
+    let files: FileUploadRequest[] = [];
+    let previousTask: NodeJS.Timeout | undefined = undefined;
+    let previousTaskTime = 0;
     
     const refreshList = () => {
       clearTimeout(previousTask);
@@ -293,7 +293,7 @@ export class BulkFileUploadCommand extends BaseCommand {
 								}
 		
 								document.getElementById('file-list-count').innerText = '' + message.files.length;
-								var finalHTML = '';
+								let finalHTML = '';
 								for (const file of message.files) {
 									finalHTML = finalHTML + '<tr><td>' + file.name + '</td><td>' + file.size + '</td><td>' + file.type + '</td><td><span class="btn btn-sm btn-danger">Delete</span></td></tr>';
 								}

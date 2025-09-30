@@ -24,8 +24,8 @@ export class DisconnectDirectRemoteCommand extends BaseCommand {
       
       // Close workspace
       if (vscode.workspace.workspaceFolders !== undefined) {
-        var index = -1;
-        var found = false;
+        let index = -1;
+        let found = false;
         for (const workspace of vscode.workspace.workspaceFolders) {
           index++;
           if (workspace.uri.toString() === uri.toString()) {

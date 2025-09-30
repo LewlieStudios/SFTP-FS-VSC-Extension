@@ -53,7 +53,7 @@ export class ConnectRemoteCommand extends BaseCommand {
             }
           }
           
-          var workDir = this.extension.configuration.getWorkDirForRemote(remoteName);
+          let workDir = this.extension.configuration.getWorkDirForRemote(remoteName);
           
           if (workDir === undefined) {
             await vscode.window.showInformationMessage(
