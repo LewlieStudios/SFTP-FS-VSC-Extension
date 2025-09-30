@@ -7,7 +7,43 @@ import { ConnectionManager } from '../../sftp/connection-manager';
 import { SFTPExtension } from '../../base/vscode-extension';
 
 mocha.suite('Configuration Test Suite', () => {
-  const extension = new SFTPExtension(null as any);
+  // Minimal mock for vscode.ExtensionContext
+  const mockExtensionContext: vscode.ExtensionContext = {
+    subscriptions: [],
+    workspaceState: {
+      get: () => undefined,
+      update: async () => {},
+    },
+    globalState: {
+      get: () => undefined,
+      update: async () => {},
+      setKeysForSync: () => {},
+    },
+    extensionPath: '',
+    asAbsolutePath: (relativePath: string) => relativePath,
+    storagePath: '',
+    globalStoragePath: '',
+    logPath: '',
+    extensionUri: vscode.Uri.parse(''),
+    environmentVariableCollection: {
+      persistent: true,
+      replace: () => {},
+      append: () => {},
+      prepend: () => {},
+      get: () => undefined,
+      forEach: () => {},
+      clear: () => {},
+      delete: () => {},
+      getScoped: () => undefined,
+    },
+    secrets: {
+      store: async () => {},
+      get: async () => undefined,
+      delete: async () => {},
+      onDidChange: { event: () => {} }
+    }
+  } as any;
+  const extension = new SFTPExtension(mockExtensionContext);
   const configuration = new Configuration();
   const logger = new Logger();
   const connectionManager = new ConnectionManager(extension);
