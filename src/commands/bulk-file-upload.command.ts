@@ -1,5 +1,5 @@
-import { FileUploadRequest } from "../models/bulk-upload.model";
-import { BaseCommand } from "./base-command";
+import { FileUploadRequest } from '../models/bulk-upload.model';
+import { BaseCommand } from './base-command';
 import * as vscode from 'vscode';
 
 export class BulkFileUploadCommand extends BaseCommand {
@@ -10,37 +10,47 @@ export class BulkFileUploadCommand extends BaseCommand {
       vscode.ViewColumn.One,
       {
         enableScripts: true, // Allow JavaScript in the webview
-        retainContextWhenHidden: true
-      }
+        retainContextWhenHidden: true,
+      },
     );
-    
-    const bootstrapMinJs = vscode.Uri.joinPath(this.extension.context.extensionUri, 'webview', 'bootstrap.bundle.min.js');
-    const bootstrapMinCss = vscode.Uri.joinPath(this.extension.context.extensionUri, 'webview', 'bootstrap.min.css');
-    
+
+    const bootstrapMinJs = vscode.Uri.joinPath(
+      this.extension.context.extensionUri,
+      'webview',
+      'bootstrap.bundle.min.js',
+    );
+    const bootstrapMinCss = vscode.Uri.joinPath(
+      this.extension.context.extensionUri,
+      'webview',
+      'bootstrap.min.css',
+    );
+
     const bootstrapMinJsUri = panel.webview.asWebviewUri(bootstrapMinJs);
     const bootstrapMinCssUri = panel.webview.asWebviewUri(bootstrapMinCss);
     panel.webview.html = this.getWebviewContent(uri, bootstrapMinJsUri, bootstrapMinCssUri);
-    
+
     let files: FileUploadRequest[] = [];
     let previousTask: NodeJS.Timeout | undefined = undefined;
     let previousTaskTime = 0;
-    
+
     const refreshList = () => {
       clearTimeout(previousTask);
-      
+
       const doAction = () => {
-        const filesWithoutContent = files.map((f) => {
-          return {
-            ...f,
-            content: ''
-          } as FileUploadRequest;
-        }).sort((a, b) => a.name.localeCompare(b.name));
+        const filesWithoutContent = files
+          .map((f) => {
+            return {
+              ...f,
+              content: '',
+            } as FileUploadRequest;
+          })
+          .sort((a, b) => a.name.localeCompare(b.name));
         panel.webview.postMessage({
           command: 'displayFiles',
-          files: filesWithoutContent
+          files: filesWithoutContent,
         });
       };
-      
+
       if (Date.now() - previousTaskTime > 100) {
         doAction();
         previousTaskTime = Date.now();
@@ -50,76 +60,80 @@ export class BulkFileUploadCommand extends BaseCommand {
         }, 150);
       }
     };
-    
+
     panel.webview.onDidReceiveMessage(
       async (message) => {
         switch (message.command) {
           case 'uploadList':
-          const res = await vscode.window.showInformationMessage(
-            files.length + ' files will be uploaded to ' + uri.path + ', do you want to proceed?',
-            {
-              modal: true
-            },
-            'Yes',
-            'No'
-          );
-          if (res === undefined || res === 'No') {
-            return;
-          }
-          
-          panel.webview.postMessage({
-            command: 'uploadInProgress'
-          });
-          
-          // Perform upload.
-          try {
-            // Clear list and send to web view.
+            const res = await vscode.window.showInformationMessage(
+              files.length + ' files will be uploaded to ' + uri.path + ', do you want to proceed?',
+              {
+                modal: true,
+              },
+              'Yes',
+              'No',
+            );
+            if (res === undefined || res === 'No') {
+              return;
+            }
+
+            panel.webview.postMessage({
+              command: 'uploadInProgress',
+            });
+
+            // Perform upload.
+            try {
+              // Clear list and send to web view.
+              files = [];
+              refreshList();
+
+              panel.webview.postMessage({
+                command: 'uploadEnd',
+              });
+            } catch (ex: any) {
+              vscode.window.showErrorMessage(ex.message);
+              this.extension.logger.appendErrorToMessages(
+                'sftpfs.bulkFileUpload',
+                'Error to bulk upload...',
+                ex,
+              );
+
+              panel.webview.postMessage({
+                command: 'uploadEnd',
+              });
+            }
+            break;
+          case 'cancelList':
             files = [];
             refreshList();
-            
-            panel.webview.postMessage({
-              command: 'uploadEnd'
-            });
-          } catch(ex: any) {
-            vscode.window.showErrorMessage(ex.message);
-            this.extension.logger.appendErrorToMessages('sftpfs.bulkFileUpload', 'Error to bulk upload...', ex);
-            
-            panel.webview.postMessage({
-              command: 'uploadEnd'
-            });
-          }
-          break;
-          case 'cancelList':
-          files = [];
-          refreshList();
-          vscode.window.showInformationMessage('File list cleared.');
-          break;
+            vscode.window.showInformationMessage('File list cleared.');
+            break;
           case 'fileDropped':
-          const file = message.file as FileUploadRequest;
-          
-          files = files.filter((f) => {
-            return f.name.toLowerCase() !== file.name.toLowerCase();
-          });
-          files.push(file);
-          
-          refreshList();
-          break;
+            const file = message.file as FileUploadRequest;
+
+            files = files.filter((f) => {
+              return f.name.toLowerCase() !== file.name.toLowerCase();
+            });
+            files.push(file);
+
+            refreshList();
+            break;
           case 'showInfoMessage':
-          vscode.window.showInformationMessage(message.content);
-          break;
+            vscode.window.showInformationMessage(message.content);
+            break;
           case 'showWarningMessage':
-          vscode.window.showWarningMessage(message.content);
-          break;
+            vscode.window.showWarningMessage(message.content);
+            break;
           case 'showErrorMessage':
-          vscode.window.showErrorMessage(message.content);
-          break;
+            vscode.window.showErrorMessage(message.content);
+            break;
         }
       },
       undefined,
-      this.extension.context.subscriptions
+      this.extension.context.subscriptions,
     );
   }
-  
+
   private getWebviewContent(uri: vscode.Uri, bootstrapJs: vscode.Uri, bootstrapCss: vscode.Uri) {
     return `
     <!DOCTYPE html>

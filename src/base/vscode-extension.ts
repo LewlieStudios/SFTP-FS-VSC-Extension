@@ -22,92 +22,87 @@ import { UploadLocalFileCommand } from '../commands/upload-local-file.command.js
 import { RefreshDirectoryCommand } from '../commands/refresh-directory.command.js';
 
 export class SFTPExtension {
+  logger!: Logger;
+  configuration!: Configuration;
+  connectionManager!: ConnectionManager;
+  sftpFileSystem!: SFTPFileSystem;
+  sftpFileDecoration!: SFTPFileDecoration;
 
- 	logger!: Logger;
-	configuration!: Configuration;
-	connectionManager!: ConnectionManager;
-	sftpFileSystem!: SFTPFileSystem;
-	sftpFileDecoration!: SFTPFileDecoration;
+  vscodeStatusBarItem!: vscode.StatusBarItem;
+  vscodeRemoteConnectQuickPick?: vscode.QuickPick<QuickPickItemWithValue> = undefined;
 
-	vscodeStatusBarItem!: vscode.StatusBarItem;
-	vscodeRemoteConnectQuickPick?: vscode.QuickPick<QuickPickItemWithValue> = undefined;
+  constructor(public context: vscode.ExtensionContext) {}
 
-	constructor(public context: vscode.ExtensionContext) {}
+  /**
+   * Function for extension activation.
+   */
+  async activate() {
+    this.configuration = new Configuration();
+    this.logger = new Logger();
+    this.connectionManager = new ConnectionManager(this);
+    this.sftpFileDecoration = new SFTPFileDecoration();
 
-	/**
-	 * Function for extension activation.
-	 */
-	async activate() {
-		this.configuration = new Configuration();
-		this.logger = new Logger();
-		this.connectionManager = new ConnectionManager(this);
-		this.sftpFileDecoration = new SFTPFileDecoration();
+    console.log('Extension activated');
+    this.logger.init();
 
-		console.log('Extension activated');
-		this.logger.init();
-		
-		this.registerSFTPFileSystem();
-		this.createStatusBarItem();
-		this.registerCommands();
-		
-		this.context.subscriptions.push(
-			vscode.window.registerFileDecorationProvider(this.sftpFileDecoration)
-		);
-	}
-	
-	async deactivate() {
-		console.log('Extension deactivated');
-		await this.connectionManager.destroyAll();
-		
-		const provider = this.sftpFileSystem;
-		console.log('Disposing file system provider...');
-		provider?.dispose();
-	}
+    this.registerSFTPFileSystem();
+    this.createStatusBarItem();
+    this.registerCommands();
 
-	/**
-	 * Register the SFTP file system provider.
-	 * @param context The extension context.
-	 */
-	registerSFTPFileSystem() {
-		this.sftpFileSystem = new SFTPFileSystem(this);
-		this.context.subscriptions.push(
-			vscode.workspace.registerFileSystemProvider(
-				'sftp', 
-				this.sftpFileSystem, 
-				{ 
-					isCaseSensitive: true
-				}
-			)
-		);
-	}
+    this.context.subscriptions.push(
+      vscode.window.registerFileDecorationProvider(this.sftpFileDecoration),
+    );
+  }
 
-	/**
-	 * Create the status bar item for the extension.
-	 * @param context The extension context.
-	 */
-	createStatusBarItem() {
-		this.vscodeStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
-		this.vscodeStatusBarItem.text = '$(cloud) Ready';
-		this.vscodeStatusBarItem.tooltip = 'SFTP status';
-		this.vscodeStatusBarItem.show();
-		this.context.subscriptions.push(this.vscodeStatusBarItem);
-	}
+  async deactivate() {
+    console.log('Extension deactivated');
+    await this.connectionManager.destroyAll();
 
-	registerCommands() {
-		new AddRemoteCommand(this, 'sftpfs.addRemote').register();
-		new EditRemoteCommand(this, 'sftpfs.editRemote').register();
-		new RemoveRemoteCommand(this, 'sftpfs.removeRemote').register();
-		new ConnectRemoteCommand(this, 'sftpfs.connectRemote').register();
-		new ShowSystemExplorerCommand(this, 'sftpfs.showInSystemExplorer').register();
-		new RemoveLocalFileCommand(this, 'sftpfs.removeLocalFile').register();
-		new UploadLocalFolderCommand(this, 'sftpfs.uploadLocalFolder').register();
-		new DownloadRemoteFolderCommand(this, 'sftpfs.downloadRemoteFolder').register();
-		new RefreshRemoteFolderCommand(this, 'sftpfs.refreshRemoteFolder').register();
-		new ReconnectCommand(this, 'sftpfs.reconnect').register();
-		new DisconnectDirectRemoteCommand(this, 'sftpfs.disconnectDirectRemote').register();
-		new BulkFileUploadCommand(this, 'sftpfs.bulkFileUpload').register();
-		new DownloadRemoteFileCommand(this, 'sftpfs.downloadRemoteFile').register();
-		new UploadLocalFileCommand(this, 'sftpfs.uploadLocalFile').register();
-		new RefreshDirectoryCommand(this, 'sftpfs.refreshDirectory').register();
-	}
+    const provider = this.sftpFileSystem;
+    console.log('Disposing file system provider...');
+    provider?.dispose();
+  }
+
+  /**
+   * Register the SFTP file system provider.
+   * @param context The extension context.
+   */
+  registerSFTPFileSystem() {
+    this.sftpFileSystem = new SFTPFileSystem(this);
+    this.context.subscriptions.push(
+      vscode.workspace.registerFileSystemProvider('sftp', this.sftpFileSystem, {
+        isCaseSensitive: true,
+      }),
+    );
+  }
+
+  /**
+   * Create the status bar item for the extension.
+   * @param context The extension context.
+   */
+  createStatusBarItem() {
+    this.vscodeStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
+    this.vscodeStatusBarItem.text = '$(cloud) Ready';
+    this.vscodeStatusBarItem.tooltip = 'SFTP status';
+    this.vscodeStatusBarItem.show();
+    this.context.subscriptions.push(this.vscodeStatusBarItem);
+  }
+
+  registerCommands() {
+    new AddRemoteCommand(this, 'sftpfs.addRemote').register();
+    new EditRemoteCommand(this, 'sftpfs.editRemote').register();
+    new RemoveRemoteCommand(this, 'sftpfs.removeRemote').register();
+    new ConnectRemoteCommand(this, 'sftpfs.connectRemote').register();
+    new ShowSystemExplorerCommand(this, 'sftpfs.showInSystemExplorer').register();
+    new RemoveLocalFileCommand(this, 'sftpfs.removeLocalFile').register();
+    new UploadLocalFolderCommand(this, 'sftpfs.uploadLocalFolder').register();
+    new DownloadRemoteFolderCommand(this, 'sftpfs.downloadRemoteFolder').register();
+    new RefreshRemoteFolderCommand(this, 'sftpfs.refreshRemoteFolder').register();
+    new ReconnectCommand(this, 'sftpfs.reconnect').register();
+    new DisconnectDirectRemoteCommand(this, 'sftpfs.disconnectDirectRemote').register();
+    new BulkFileUploadCommand(this, 'sftpfs.bulkFileUpload').register();
+    new DownloadRemoteFileCommand(this, 'sftpfs.downloadRemoteFile').register();
+    new UploadLocalFileCommand(this, 'sftpfs.uploadLocalFile').register();
+    new RefreshDirectoryCommand(this, 'sftpfs.refreshDirectory').register();
+  }
 }

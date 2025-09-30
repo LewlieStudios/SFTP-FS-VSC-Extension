@@ -4,10 +4,10 @@ import { SFTPExtension } from './base/vscode-extension';
 let extensionInstance: SFTPExtension | undefined = undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
-	extensionInstance = new SFTPExtension(context);
-	await extensionInstance.activate();
+  extensionInstance = new SFTPExtension(context);
+  await extensionInstance.activate();
 }
 
 export async function deactivate() {
-	await extensionInstance?.deactivate();
+  await extensionInstance?.deactivate();
 }

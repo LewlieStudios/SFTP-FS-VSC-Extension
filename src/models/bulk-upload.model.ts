@@ -1,7 +1,6 @@
-
 export interface FileUploadRequest {
-	content: string,
-	name: string,
-	size: number,
-	type: string
+  content: string;
+  name: string;
+  size: number;
+  type: string;
 }
