@@ -19,12 +19,9 @@ export class EditRemoteCommand extends BaseCommand {
       remoteName = choosedRemote;
     }
 
-    const config =
-      this.extension.configuration.getRemoteConfiguration(remoteName);
+    const config = this.extension.configuration.getRemoteConfiguration(remoteName);
     if (!config) {
-      vscode.window.showErrorMessage(
-        'Remote configuration for "' + remoteName + '" not found.',
-      );
+      vscode.window.showErrorMessage('Remote configuration for "' + remoteName + '" not found.');
       return;
     }
 
@@ -45,9 +42,7 @@ export class EditRemoteCommand extends BaseCommand {
     // Save this.configuration...
     if (remoteName !== data.name) {
       // Name changed, remove old and add new...
-      await this.extension.configuration.removeRemoteConfiguration([
-        remoteName,
-      ]);
+      await this.extension.configuration.removeRemoteConfiguration([remoteName]);
     }
     this.extension.configuration
       .saveRemoteConfiguration(
@@ -61,8 +56,7 @@ export class EditRemoteCommand extends BaseCommand {
       .then(() => {
         let actionDescription = '';
         if (remoteName !== data.name) {
-          actionDescription =
-            'Remote updated and renamed to "' + data.name + '"';
+          actionDescription = 'Remote updated and renamed to "' + data.name + '"';
         } else {
           actionDescription = 'Remote "' + data.name + '" updated';
         }
@@ -70,10 +64,7 @@ export class EditRemoteCommand extends BaseCommand {
           .showInformationMessage(actionDescription, 'Open configuration')
           .then((res) => {
             if (res === 'Open configuration') {
-              vscode.commands.executeCommand(
-                'workbench.action.openSettings',
-                '@ext:lewlie.sftpfs',
-              );
+              vscode.commands.executeCommand('workbench.action.openSettings', '@ext:lewlie.sftpfs');
             }
           });
       })
