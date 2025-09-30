@@ -29,6 +29,3 @@ export class Logger {
     this.messagesErrChannel.appendLine('[' + prefix + '] ' + usefulMessage + ': (' + error.message + '): ' + error.stack);
   }
 }
-
-const logger = new Logger();
-export default logger;

@@ -5,8 +5,6 @@ export class FileDecorationManager {
   readonly onDidChangeFileDecorations: vscode.Event<vscode.Uri | vscode.Uri[] | undefined> = this._onDidChangeFileDecorations.event;
 
   private decorations = new Map<string, CachedDecoration>();
-  private item!: vscode.StatusBarItem;
-
 	private _bufferedEvents: CachedDecoration[] = [];
 	private _fireSoonHandle?: NodeJS.Timeout;
 
@@ -120,20 +118,9 @@ export class FileDecorationManager {
 			this._bufferedEvents = [];
 		}, 100);
   }
-
-	setStatusBarItem(item: vscode.StatusBarItem) {
-		this.item = item;
-	}
-
-  getStatusBarItem() {
-    return this.item;
-  }
 }
 
 export interface CachedDecoration {
   realUri: vscode.Uri,
   decoration: vscode.FileDecoration
 }
-
-const fileDecorationManager = new FileDecorationManager();
-export default fileDecorationManager;

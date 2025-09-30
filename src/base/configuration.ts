@@ -1,6 +1,6 @@
 import { workspace } from "vscode";
 
-class Configuration {
+export class Configuration {
 
   getRemotesConfiguration() {
     const currentRemotes = workspace.getConfiguration('sftpfs').get<RemoteConfigurationSection>('remotes');
@@ -90,9 +90,6 @@ class Configuration {
     await workspace.getConfiguration('sftpfs').update('workDirs', newStorage, true);
   }
 }
-
-const configuration = new Configuration();
-export default configuration;
 
 export interface RemoteConfigurationSection {
   [key: string]: RemoteConfiguration

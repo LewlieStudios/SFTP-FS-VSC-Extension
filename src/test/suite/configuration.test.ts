@@ -1,11 +1,17 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import configuration from '../../configuration';
 import * as mocha from 'mocha';
-import connectionManager from '../../connection-manager';
-import logger from '../../logger';
+import { Configuration } from '../../base/configuration';
+import { Logger } from '../../base/logger';
+import { ConnectionManager } from '../../sftp/connection-manager';
+import { SFTPExtension } from '../../base/vscode-extension';
 
 mocha.suite('Configuration Test Suite', () => {
+  const extension = new SFTPExtension(null as any);
+  const configuration = new Configuration();
+  const logger = new Logger();
+  const connectionManager = new ConnectionManager(extension);
+  extension.logger = logger;
 
   mocha.before(async () => {
     console.log('Generating a default configuration...');
