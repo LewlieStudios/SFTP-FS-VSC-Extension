@@ -1,4 +1,4 @@
-// Place your settings in this file to overwrite default and user settings.
+// Workspace settings shared by the repo
 {
     "files.exclude": {
         "out": false, // set this to true to hide the "out" folder with the compiled JS files
@@ -9,5 +9,21 @@
         "dist": true // set this to false to include "dist" folder in search results
     },
     // Turn off tsc task auto detection since we have the necessary tasks as npm scripts
-    "typescript.tsc.autoDetect": "off"
+    "typescript.tsc.autoDetect": "off",
+
+    // Formatting and linting on save
+    "files.eol": "\n",
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true,
+    "editor.detectIndentation": false,
+    // Use ESLint to fix everything (Prettier is enforced via eslint rule)
+    "editor.codeActionsOnSave": {
+            "source.fixAll.eslint": "explicit"
+    },
+    // Use Flat Config and validate TS/JS
+    "eslint.useFlatConfig": true,
+    "eslint.validate": ["typescript", "javascript"],
+    "eslint.workingDirectories": [{ "mode": "auto" }],
+    // Avoid duplicate formatting
+    "editor.formatOnSave": false
 }
