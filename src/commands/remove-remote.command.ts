@@ -29,7 +29,7 @@ export class RemoveRemoteCommand extends BaseCommand {
           }
         }).catch((ex) => {
           vscode.window.showErrorMessage('Something went wrong...');
-          this.extension.logger.appendErrorToMessages('sftpfs.removeRemote', 'Unable to delete remote this.configuration.', ex);
+          this.extension.logger.appendErrorToMessages('sftpfs.removeRemote', 'Unable to delete remote configuration.', ex);
         });
       }
     });
