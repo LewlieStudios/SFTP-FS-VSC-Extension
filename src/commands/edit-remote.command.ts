@@ -64,7 +64,7 @@ export class EditRemoteCommand extends BaseCommand {
     })
     .catch((ex) => {
       vscode.window.showErrorMessage('Something went wrong...');
-      this.extension.logger.appendErrorToMessages('sftpfs.editRemote', 'Unable to save remote this.configuration.', ex);
+      this.extension.logger.appendErrorToMessages('sftpfs.editRemote', 'Unable to save remote configuration.', ex);
     });
   }
   
