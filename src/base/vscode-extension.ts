@@ -47,6 +47,7 @@ export class SFTPExtension {
 
     this.registerSFTPFileSystem();
     this.createStatusBarItem();
+    this.registerViews();
     this.registerCommands();
 
     this.context.subscriptions.push(
@@ -105,4 +106,6 @@ export class SFTPExtension {
     new UploadLocalFileCommand(this, 'sftpfs.uploadLocalFile').register();
     new RefreshDirectoryCommand(this, 'sftpfs.refreshDirectory').register();
   }
+
+  registerViews() {}
 }
