@@ -20,6 +20,7 @@ import { BulkFileUploadCommand } from '../commands/bulk-file-upload.command.js';
 import { DownloadRemoteFileCommand } from '../commands/download-remote-file.command.js';
 import { UploadLocalFileCommand } from '../commands/upload-local-file.command.js';
 import { RefreshDirectoryCommand } from '../commands/refresh-directory.command.js';
+import { ConnectionsView } from '../views/connections.view.js';
 
 export class SFTPExtension {
   logger!: Logger;
@@ -107,5 +108,7 @@ export class SFTPExtension {
     new RefreshDirectoryCommand(this, 'sftpfs.refreshDirectory').register();
   }
 
-  registerViews() {}
+  registerViews() {
+    new ConnectionsView(this).register();
+  }
 }

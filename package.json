@@ -30,6 +30,25 @@
     "url": "https://github.com/LewLie/SFTP-FS-VSC-Extension"
   },
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sftpfs-manage-connections",
+          "title": "SFTP FS",
+          "icon": "images/sidebar-connections-view.svg"
+        }
+      ]
+    },
+    "views": {
+      "sftpfs-manage-connections": [
+        {
+          "id": "sftpfs.manage-connections",
+          "name": "Manage Connections",
+          "icon": "images/sidebar-connections-view.svg",
+          "type": "webview"
+        }
+      ]
+    },
     "viewsWelcome": [
       {
         "view": "explorer",
