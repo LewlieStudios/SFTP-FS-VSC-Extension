@@ -209,7 +209,7 @@ export class EditRemoteCommand extends BaseCommand {
           <h1>Edit Remote Configuration</h1>
           <p>Update the information for the remote configuration.</p>
           <vscode-divider></vscode-divider>
-          <vscode-form-group variant="vertical">
+          <vscode-form-group>
             <vscode-label for="basic-textfield-name">
               Name:
             </vscode-label>
@@ -225,7 +225,7 @@ export class EditRemoteCommand extends BaseCommand {
               </p>
             </vscode-form-helper>
           </vscode-form-group>
-          <vscode-form-group variant="vertical">
+          <vscode-form-group>
             <vscode-label for="basic-textfield-01">
               Host:
             </vscode-label>
@@ -241,7 +241,7 @@ export class EditRemoteCommand extends BaseCommand {
               </p>
             </vscode-form-helper>
           </vscode-form-group>
-          <vscode-form-group variant="vertical">
+          <vscode-form-group>
             <vscode-label for="basic-textfield-02">
               Port:
             </vscode-label>
@@ -258,7 +258,7 @@ export class EditRemoteCommand extends BaseCommand {
               </p>
             </vscode-form-helper>
           </vscode-form-group>
-          <vscode-form-group variant="vertical">
+          <vscode-form-group>
             <vscode-label for="basic-textfield-03">
               Username:
             </vscode-label>
@@ -274,7 +274,7 @@ export class EditRemoteCommand extends BaseCommand {
               </p>
             </vscode-form-helper>
           </vscode-form-group>
-          <vscode-form-group variant="vertical">
+          <vscode-form-group>
             <vscode-label for="basic-textfield-04">
               Password:
             </vscode-label>
@@ -290,7 +290,7 @@ export class EditRemoteCommand extends BaseCommand {
               </p>
             </vscode-form-helper>
           </vscode-form-group>
-          <vscode-form-group variant="vertical">
+          <vscode-form-group>
             <vscode-label for="basic-textfield-05">
               Remote Path:
             </vscode-label>

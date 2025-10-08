@@ -6,7 +6,7 @@ import fs from 'fs';
 import { randomUUID, UUID } from 'crypto';
 import { SFTPExtension } from '../base/vscode-extension.js';
 import { RemoteConfiguration } from '../base/configuration.js';
-import { PoolType, ConnectionProvider } from './connection-manager.js';
+import { PoolType, SFTPClientHandler } from './connection-manager.js';
 
 export class SFTPFileSystem implements vscode.FileSystemProvider {
   private sftpFileProvidersDataByRemotes = new Map<string, SFTPFileProviderData>();
@@ -84,9 +84,9 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
     }
     newData.workDirPath = vscode.Uri.file(current);
     //this.workDirName = current.split('/').pop()!;
-    if (!this.extension.connectionManager.poolExists(newData.remoteName)) {
+    if (!this.extension.connectionManager.hasActiveResourceManager(newData.remoteName)) {
       console.log('Creating connections pool!');
-      this.extension.connectionManager.createPool({
+      this.extension.connectionManager.createResourceManager({
         configuration: newData.remoteConfiguration,
         remoteName: newData.remoteName,
       });
@@ -1397,7 +1397,7 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
     connectionSFTP: SFTPWrapper | undefined = undefined,
   ): Promise<vscode.Uri> {
     let connection = connectionSFTP;
-    let connectionProvider: ConnectionProvider | undefined = undefined;
+    let connectionProvider: SFTPClientHandler | undefined = undefined;
     const remoteName = this.getRemoteName(uri);
 
     if (connection === undefined) {
@@ -3151,10 +3151,12 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
     this.extension.logger.appendLineToMessages(
       '[connection] Trying to acquire "' + type + '" connection.',
     );
-    return await (await this.extension.connectionManager.get(remoteName)?.getPool(type))?.acquire();
+    return await (
+      await this.extension.connectionManager.getResourceManager(remoteName)?.getPool(type)
+    )?.acquire();
   }
 
-  async releaseConnection(remoteName: string, connection: ConnectionProvider | undefined) {
+  async releaseConnection(remoteName: string, connection: SFTPClientHandler | undefined) {
     try {
       if (connection === undefined) {
         return;
@@ -3164,9 +3166,11 @@ export class SFTPFileSystem implements vscode.FileSystemProvider {
         '[connection] Releasing "' + connection.type + '" connection.',
       );
 
-      (await this.extension.connectionManager.get(remoteName)?.getPool(connection.type))?.release(
-        connection,
-      );
+      (
+        await this.extension.connectionManager
+          .getResourceManager(remoteName)
+          ?.getPool(connection.type)
+      )?.release(connection);
 
       this.extension.logger.appendLineToMessages(
         '[connection] Connection "' + connection.type + '" released.',

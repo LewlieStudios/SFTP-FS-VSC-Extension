@@ -1,7 +1,8 @@
 import { OutputChannel } from 'vscode';
 import * as vscode from 'vscode';
+import { SFTPExtension } from './vscode-extension';
 
-export class Logger {
+export class GlobalLogger {
   messagesChannel!: OutputChannel;
   messagesErrChannel!: OutputChannel;
   initialized = false;
@@ -23,9 +24,9 @@ export class Logger {
     );
   }
 
-  appendLineToMessages(content: string) {
+  appendLineToMessages(prefix: string, content: string) {
     console.info(content);
-    this.messagesChannel.appendLine(content);
+    this.messagesChannel.appendLine('[' + prefix + '] ' + content);
   }
 
   appendErrorToMessages(prefix: string, usefulMessage: string, error: Error) {
@@ -42,5 +43,17 @@ export class Logger {
     this.messagesErrChannel.appendLine(
       '[' + prefix + '] ' + usefulMessage + ': (' + error.message + '): ' + error.stack,
     );
+  }
+}
+
+export class ScopedLogger {
+  constructor(public prefix: string) {}
+
+  logMessage(content: string) {
+    SFTPExtension.instance?.logger.appendLineToMessages(this.prefix, content);
+  }
+
+  logError(usefulMessage: string, error: Error) {
+    SFTPExtension.instance?.logger.appendErrorToMessages(this.prefix, usefulMessage, error);
   }
 }

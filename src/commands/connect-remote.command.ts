@@ -10,9 +10,12 @@ export class ConnectRemoteCommand extends BaseCommand {
 
     if (names.length === 0) {
       vscode.window
-        .showInformationMessage('Currently there is not any remote configured.', 'Add Remote')
+        .showInformationMessage(
+          'Currently there is not any remote connection configured.',
+          'Add Remote Connection',
+        )
         .then((res) => {
-          if (res === 'Add Remote') {
+          if (res === 'Add Remote Connection') {
             vscode.commands.executeCommand('sftpfs.addRemote');
           }
         });
@@ -69,7 +72,7 @@ export class ConnectRemoteCommand extends BaseCommand {
 
             if (workDir === undefined) {
               await vscode.window.showInformationMessage(
-                'You have not configured a local folder to synchronize files from this remote, please select a folder.',
+                'You have not configured a local folder to synchronize files from this remote connection, please select a folder.',
                 {
                   modal: true,
                 },
@@ -79,7 +82,7 @@ export class ConnectRemoteCommand extends BaseCommand {
                 canSelectFiles: false,
                 canSelectFolders: true,
                 canSelectMany: false,
-                title: 'Select a folder to sync remote files',
+                title: 'Select a local folder to sync remote files',
                 openLabel: 'Select',
                 defaultUri: vscode.Uri.file(upath.join(os.homedir())),
               });
@@ -137,7 +140,7 @@ export class ConnectRemoteCommand extends BaseCommand {
               } catch (ex: any) {
                 this.extension.logger.appendErrorToMessages(
                   'sftpfs.connectRemote',
-                  'Failed to save workspace configuration for remote name "' +
+                  'Failed to save workspace configuration for remote connection "' +
                     remoteName +
                     '", path to save: ' +
                     dirPath.path,
@@ -198,9 +201,9 @@ export class ConnectRemoteCommand extends BaseCommand {
               }
             }
 
-            if (!this.extension.connectionManager.poolExists(remoteName)) {
+            if (!this.extension.connectionManager.hasActiveResourceManager(remoteName)) {
               console.log('Creating connection pool!');
-              await this.extension.connectionManager.createPool({
+              await this.extension.connectionManager.createResourceManager({
                 configuration: config,
                 remoteName: remoteName,
               });
@@ -222,7 +225,9 @@ export class ConnectRemoteCommand extends BaseCommand {
               async () => {
                 try {
                   const connection = await (
-                    await this.extension.connectionManager.get(remoteName)?.getPool('passive')
+                    await this.extension.connectionManager
+                      .getResourceManager(remoteName)
+                      ?.getPool('passive')
                   )?.acquire();
                   if (connection === undefined) {
                     throw Error('SFTP Connection lost.');

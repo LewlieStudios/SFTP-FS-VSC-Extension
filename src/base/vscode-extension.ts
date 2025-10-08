@@ -2,9 +2,9 @@ import { SFTPFileSystem } from '../sftp/sftp-file-system.js';
 import { QuickPickItemWithValue } from '../models/quick-pick.model.js';
 import * as vscode from 'vscode';
 import { Configuration } from './configuration.js';
-import { Logger } from './logger.js';
+import { GlobalLogger } from './logger.js';
 import { AddRemoteCommand } from '../commands/add-remote.command.js';
-import { ConnectionManager } from '../sftp/connection-manager.js';
+import { SFTPConnectionManager } from '../sftp/connection-manager.js';
 import { FileDecorationManager as SFTPFileDecoration } from '../sftp/file-decoration-manager.js';
 import { EditRemoteCommand } from '../commands/edit-remote.command.js';
 import { RemoveRemoteCommand } from '../commands/remove-remote.command.js';
@@ -23,9 +23,11 @@ import { RefreshDirectoryCommand } from '../commands/refresh-directory.command.j
 import { ConnectionsView } from '../views/connections.view.js';
 
 export class SFTPExtension {
-  logger!: Logger;
+  static instance?: SFTPExtension;
+
+  logger!: GlobalLogger;
   configuration!: Configuration;
-  connectionManager!: ConnectionManager;
+  connectionManager!: SFTPConnectionManager;
   sftpFileSystem!: SFTPFileSystem;
   sftpFileDecoration!: SFTPFileDecoration;
 
@@ -38,9 +40,10 @@ export class SFTPExtension {
    * Function for extension activation.
    */
   async activate() {
+    SFTPExtension.instance = this;
     this.configuration = new Configuration();
-    this.logger = new Logger();
-    this.connectionManager = new ConnectionManager(this);
+    this.logger = new GlobalLogger();
+    this.connectionManager = new SFTPConnectionManager(this);
     this.sftpFileDecoration = new SFTPFileDecoration();
 
     console.log('Extension activated');
@@ -57,6 +60,7 @@ export class SFTPExtension {
   }
 
   async deactivate() {
+    SFTPExtension.instance = undefined;
     console.log('Extension deactivated');
     await this.connectionManager.destroyAll();
 

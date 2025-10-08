@@ -20,7 +20,7 @@ export class DisconnectDirectRemoteCommand extends BaseCommand {
       }
 
       // Ok, attempt a disconnect.
-      await this.extension.connectionManager.get(remoteName)?.close();
+      await this.extension.connectionManager.getResourceManager(remoteName)?.close();
 
       // Close workspace
       if (vscode.workspace.workspaceFolders !== undefined) {

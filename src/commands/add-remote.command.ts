@@ -18,7 +18,7 @@ export class AddRemoteCommand extends BaseCommand {
       },
     );
     panel.webview.html = this.createWebviewContent(panel.webview);
-    panel.title = 'Add Remote';
+    panel.title = 'Add Remote Connection';
     // Listen for messages from the webview (the form submit)
     const messageListener = panel.webview.onDidReceiveMessage(async (message) => {
       try {
@@ -139,16 +139,16 @@ export class AddRemoteCommand extends BaseCommand {
         <meta charset="UTF-8">
         <meta http-equiv="Content-Security-Policy" content="${csp}">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Add Remote</title>
+        <title>Add Remote Connection</title>
         <script type="module" src="${vscodeElementsPath}" nonce="${nonce}"></script>
         <link rel="stylesheet" href="${codiconsPath}" id="vscode-codicon-stylesheet">
       </head>
       <body>
         <vscode-form-container responsive="true">
-          <h1>Add Remote Configuration</h1>
-          <p>Please fill the information to add a new remote configuration.</p>
+          <h1>Add Remote Connection</h1>
+          <p>Please fill the information to add a new remote connection.</p>
           <vscode-divider></vscode-divider>
-          <vscode-form-group variant="vertical">
+          <vscode-form-group>
             <vscode-label for="basic-textfield-name">
               Name:
             </vscode-label>
@@ -159,11 +159,11 @@ export class AddRemoteCommand extends BaseCommand {
             ></vscode-textfield>
             <vscode-form-helper>
               <p>
-                A friendly name to identify this remote configuration.
+                A friendly name to identify this remote connection.
               </p>
             </vscode-form-helper>
           </vscode-form-group>
-          <vscode-form-group variant="vertical">
+          <vscode-form-group>
             <vscode-label for="basic-textfield-01">
               Host:
             </vscode-label>
@@ -178,7 +178,7 @@ export class AddRemoteCommand extends BaseCommand {
               </p>
             </vscode-form-helper>
           </vscode-form-group>
-          <vscode-form-group variant="vertical">
+          <vscode-form-group>
             <vscode-label for="basic-textfield-02">
               Port:
             </vscode-label>
@@ -195,7 +195,7 @@ export class AddRemoteCommand extends BaseCommand {
               </p>
             </vscode-form-helper>
           </vscode-form-group>
-          <vscode-form-group variant="vertical">
+          <vscode-form-group>
             <vscode-label for="basic-textfield-03">
               Username:
             </vscode-label>
@@ -210,7 +210,7 @@ export class AddRemoteCommand extends BaseCommand {
               </p>
             </vscode-form-helper>
           </vscode-form-group>
-          <vscode-form-group variant="vertical">
+          <vscode-form-group>
             <vscode-label for="basic-textfield-04">
               Password:
             </vscode-label>
@@ -225,7 +225,7 @@ export class AddRemoteCommand extends BaseCommand {
               </p>
             </vscode-form-helper>
           </vscode-form-group>
-          <vscode-form-group variant="vertical">
+          <vscode-form-group>
             <vscode-label for="basic-textfield-05">
               Remote Path:
             </vscode-label>
