@@ -1,13 +1,16 @@
 import { BaseCommand } from './base-command';
 import * as vscode from 'vscode';
 import * as upath from 'upath';
+import { ScopedLogger } from '../base/logger';
 
 export class RemoveLocalFileCommand extends BaseCommand {
+  private logger = new ScopedLogger('RemoveLocalFileCommand');
+
   async callback(uri: vscode.Uri) {
     try {
       const provider = this.extension.sftpFileSystem;
       if (provider === undefined) {
-        this.extension.logger.appendLineToMessages(
+        this.logger.logMessage(
           'Unexpected: Cannot get file provider for remote "' + uri.authority + '".',
         );
         vscode.window.showErrorMessage(
@@ -58,11 +61,7 @@ export class RemoveLocalFileCommand extends BaseCommand {
       // Send a refresh for the explorer
       provider.sendUpdateForRootFolder();
     } catch (ex: any) {
-      this.extension.logger.appendErrorToMessages(
-        'sftpfs.removeLocalFile',
-        'Failed due error:',
-        ex,
-      );
+      this.logger.logError('[sftpfs.removeLocalFile] Failed due error:', ex);
       vscode.window.showErrorMessage('Operation failed: ' + ex.message);
     }
   }

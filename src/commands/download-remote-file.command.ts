@@ -1,13 +1,16 @@
 import { BaseCommand } from './base-command';
 import * as vscode from 'vscode';
 import * as upath from 'upath';
+import { ScopedLogger } from '../base/logger';
 
 export class DownloadRemoteFileCommand extends BaseCommand {
+  private logger = new ScopedLogger('DownloadRemoteFileCommand');
+
   async callback(uri: vscode.Uri) {
     try {
       const provider = this.extension.sftpFileSystem;
       if (provider === undefined) {
-        this.extension.logger.appendLineToMessages(
+        this.logger.logMessage(
           'Unexpected: Cannot get file provider for remote "' + uri.authority + '".',
         );
         vscode.window.showErrorMessage(
@@ -24,11 +27,7 @@ export class DownloadRemoteFileCommand extends BaseCommand {
       );
     } catch (ex: any) {
       this.extension.vscodeStatusBarItem!.text = '$(cloud) Ready';
-      this.extension.logger.appendErrorToMessages(
-        'sftpfs.downloadRemoteFile',
-        'Failed due error:',
-        ex,
-      );
+      this.logger.logError('[sftpfs.downloadRemoteFile] Failed due error:', ex);
       vscode.window.showErrorMessage('Operation failed: ' + ex.message);
     }
   }

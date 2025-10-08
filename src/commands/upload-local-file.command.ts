@@ -1,13 +1,16 @@
 import { BaseCommand } from './base-command';
 import * as vscode from 'vscode';
 import * as upath from 'upath';
+import { ScopedLogger } from '../base/logger';
 
 export class UploadLocalFileCommand extends BaseCommand {
+  private logger = new ScopedLogger('UploadLocalFileCommand');
+
   async callback(uri: vscode.Uri) {
     try {
       const provider = this.extension.sftpFileSystem;
       if (provider === undefined) {
-        this.extension.logger.appendLineToMessages(
+        this.logger.logMessage(
           'Unexpected: Cannot get file provider for remote "' + uri.authority + '".',
         );
         vscode.window.showErrorMessage(
@@ -16,7 +19,7 @@ export class UploadLocalFileCommand extends BaseCommand {
         return;
       }
 
-      this.extension.logger.appendLineToMessages('[sftpfs.uploadLocalFile] ' + uri.path);
+      this.logger.logMessage('[sftpfs.uploadLocalFile] ' + uri.path);
 
       const localPath = provider.getLocalFileUri(uri.authority, uri);
       await provider.uploadLocalFileToRemoteIfNeeded(uri.authority, localPath, 'passive', true);
@@ -27,11 +30,7 @@ export class UploadLocalFileCommand extends BaseCommand {
       );
     } catch (ex: any) {
       this.extension.vscodeStatusBarItem!.text = '$(cloud) Ready';
-      this.extension.logger.appendErrorToMessages(
-        'sftpfs.uploadLocalFile',
-        'Failed due error:',
-        ex,
-      );
+      this.logger.logError('[sftpfs.uploadLocalFile] Failed due error:', ex);
       vscode.window.showErrorMessage('Operation failed: ' + ex.message);
     }
   }

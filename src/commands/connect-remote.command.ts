@@ -3,8 +3,11 @@ import { BaseCommand } from './base-command';
 import * as vscode from 'vscode';
 import upath from 'upath';
 import os from 'os';
+import { ScopedLogger } from '../base/logger';
 
 export class ConnectRemoteCommand extends BaseCommand {
+  private logger = new ScopedLogger('ConnectRemoteCommand');
+
   async callback() {
     const names = this.extension.configuration.getRemotesConfigurationNames();
 
@@ -46,7 +49,7 @@ export class ConnectRemoteCommand extends BaseCommand {
             const config = this.extension.configuration.getRemoteConfiguration(remoteName);
 
             if (config === undefined) {
-              this.extension.logger.appendLineToMessages(
+              this.logger.logMessage(
                 'Unexpected, configuration for remote "' + remoteName + '" is undefined.',
               );
               vscode.window.showErrorMessage(
@@ -94,9 +97,7 @@ export class ConnectRemoteCommand extends BaseCommand {
               try {
                 const stats = await vscode.workspace.fs.stat(dirPath);
                 if (stats.type !== vscode.FileType.Directory) {
-                  this.extension.logger.appendLineToMessages(
-                    'Expected a directory but file found at: ' + dirPath.path,
-                  );
+                  this.logger.logMessage('Expected a directory but file found at: ' + dirPath.path);
                   vscode.window.showErrorMessage(
                     'File "' +
                       dir +
@@ -104,28 +105,24 @@ export class ConnectRemoteCommand extends BaseCommand {
                   );
                   return;
                 }
-                this.extension.logger.appendLineToMessages('Directory exists: ' + dirPath.path);
+                this.logger.logMessage('Directory exists: ' + dirPath.path);
               } catch (ex: any) {
                 if (ex instanceof vscode.FileSystemError && ex.code === 'FileNotFound') {
-                  this.extension.logger.appendLineToMessages(
-                    'Directory not exists, creating: ' + dirPath.path,
-                  );
+                  this.logger.logMessage('Directory not exists, creating: ' + dirPath.path);
                   try {
                     await vscode.workspace.fs.createDirectory(dirPath);
-                    this.extension.logger.appendLineToMessages('Directory created.');
+                    this.logger.logMessage('Directory created.');
                   } catch (ex: any) {
-                    this.extension.logger.appendErrorToMessages(
-                      'sftpfs.connectRemote',
-                      'Error making directory: ' + dirPath.path,
+                    this.logger.logError(
+                      '[sftpfs.connectRemote] Error making directory: ' + dirPath.path,
                       ex,
                     );
                     vscode.window.showErrorMessage('Failed to initialize workdir.');
                     return;
                   }
                 } else {
-                  this.extension.logger.appendErrorToMessages(
-                    'sftpfs.connectRemote',
-                    'Failed to stat directory: ' + dirPath.path,
+                  this.logger.logError(
+                    '[sftpfs.connectRemote] Failed to stat directory: ' + dirPath.path,
                     ex,
                   );
                   vscode.window.showErrorMessage('Failed to initialize workdir.');
@@ -138,9 +135,8 @@ export class ConnectRemoteCommand extends BaseCommand {
               try {
                 await this.extension.configuration.setWorkDirForRemote(remoteName, workDir);
               } catch (ex: any) {
-                this.extension.logger.appendErrorToMessages(
-                  'sftpfs.connectRemote',
-                  'Failed to save workspace configuration for remote connection "' +
+                this.logger.logError(
+                  '[sftpfs.connectRemote] Failed to save workspace configuration for remote connection "' +
                     remoteName +
                     '", path to save: ' +
                     dirPath.path,
@@ -149,11 +145,11 @@ export class ConnectRemoteCommand extends BaseCommand {
                 vscode.window.showErrorMessage('Failed to initialize workdir.');
                 return;
               }
-              this.extension.logger.appendLineToMessages(
+              this.logger.logMessage(
                 'Using workdir for remote connection "' + remoteName + '": ' + workDir,
               );
             } else {
-              this.extension.logger.appendLineToMessages(
+              this.logger.logMessage(
                 'Workdir loaded for remote connection "' + remoteName + '": ' + workDir,
               );
 
@@ -161,9 +157,7 @@ export class ConnectRemoteCommand extends BaseCommand {
               try {
                 const stats = await vscode.workspace.fs.stat(dirPath);
                 if (stats.type !== vscode.FileType.Directory) {
-                  this.extension.logger.appendLineToMessages(
-                    'Expected a directory but file found at: ' + dirPath.path,
-                  );
+                  this.logger.logMessage('Expected a directory but file found at: ' + dirPath.path);
                   vscode.window.showErrorMessage(
                     'File "' +
                       dirPath.path +
@@ -171,28 +165,24 @@ export class ConnectRemoteCommand extends BaseCommand {
                   );
                   return;
                 }
-                this.extension.logger.appendLineToMessages('Directory exists: ' + dirPath.path);
+                this.logger.logMessage('Directory exists: ' + dirPath.path);
               } catch (ex: any) {
                 if (ex instanceof vscode.FileSystemError && ex.code === 'FileNotFound') {
-                  this.extension.logger.appendLineToMessages(
-                    'Directory not exists, creating: ' + dirPath.path,
-                  );
+                  this.logger.logMessage('Directory not exists, creating: ' + dirPath.path);
                   try {
                     await vscode.workspace.fs.createDirectory(dirPath);
-                    this.extension.logger.appendLineToMessages('Directory created.');
+                    this.logger.logMessage('Directory created.');
                   } catch (ex: any) {
-                    this.extension.logger.appendErrorToMessages(
-                      'sftpfs.connectRemote',
-                      'Error making directory: ' + dirPath.path,
+                    this.logger.logError(
+                      '[sftpfs.connectRemote] Error making directory: ' + dirPath.path,
                       ex,
                     );
                     vscode.window.showErrorMessage('Failed to initialize workdir.');
                     return;
                   }
                 } else {
-                  this.extension.logger.appendErrorToMessages(
-                    'sftpfs.connectRemote',
-                    'Failed to stat directory: ' + dirPath.path,
+                  this.logger.logError(
+                    '[sftpfs.connectRemote] Failed to stat directory: ' + dirPath.path,
                     ex,
                   );
                   vscode.window.showErrorMessage('Failed to initialize workdir.');
@@ -249,9 +239,8 @@ export class ConnectRemoteCommand extends BaseCommand {
                     },
                   );
                 } catch (ex: any) {
-                  this.extension.logger.appendErrorToMessages(
-                    'sftpfs.connectRemote',
-                    'Failed to connect to remote "' + remoteName + '".',
+                  this.logger.logError(
+                    '[sftpfs.connectRemote] Failed to connect to remote "' + remoteName + '".',
                     ex,
                   );
                   vscode.window.showErrorMessage(

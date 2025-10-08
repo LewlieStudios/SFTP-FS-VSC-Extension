@@ -1,11 +1,14 @@
 import { BaseCommand } from './base-command';
 import * as vscode from 'vscode';
 import * as upath from 'upath';
+import { ScopedLogger } from '../base/logger';
 
 export class ShowSystemExplorerCommand extends BaseCommand {
+  private logger = new ScopedLogger('ShowSystemExplorerCommand');
+
   async callback(uri: vscode.Uri) {
     try {
-      this.extension.logger.appendLineToMessages(
+      this.logger.logMessage(
         'Show in system explorer for file, scheme=' +
           uri.scheme +
           ', authority=' +
@@ -16,7 +19,7 @@ export class ShowSystemExplorerCommand extends BaseCommand {
 
       const provider = this.extension.sftpFileSystem;
       if (provider === undefined) {
-        this.extension.logger.appendLineToMessages(
+        this.logger.logMessage(
           'Unexpected: Cannot get file provider for remote "' + uri.authority + '".',
         );
         vscode.window.showErrorMessage(
@@ -38,16 +41,12 @@ export class ShowSystemExplorerCommand extends BaseCommand {
         const localFileStats = await provider.statLocalFileByUri(calculatedLocalFile);
         if (localFileStats === undefined) {
           // local file not exists!
-          this.extension.logger.appendLineToMessages(
-            'Making folder... ' + calculatedLocalFile.fsPath,
-          );
+          this.logger.logMessage('Making folder... ' + calculatedLocalFile.fsPath);
           await vscode.workspace.fs.createDirectory(calculatedLocalFile);
         }
 
         // open...
-        this.extension.logger.appendLineToMessages(
-          'Opening folder... ' + calculatedLocalFile.fsPath,
-        );
+        this.logger.logMessage('Opening folder... ' + calculatedLocalFile.fsPath);
         await provider.openLocalFolderInExplorer(calculatedLocalFile);
       } else {
         if (statFile.type === vscode.FileType.SymbolicLink) {
@@ -55,14 +54,14 @@ export class ShowSystemExplorerCommand extends BaseCommand {
         }
 
         // Download if needed
-        this.extension.logger.appendLineToMessages('Downloading file... ' + uri.path);
+        this.logger.logMessage('Downloading file... ' + uri.path);
         await provider.downloadRemoteFileToLocalIfNeeded(uri, false, 'passive', false);
 
-        this.extension.logger.appendLineToMessages('Opening file... ' + calculatedLocalFile.fsPath);
+        this.logger.logMessage('Opening file... ' + calculatedLocalFile.fsPath);
         await provider.openLocalFolderInExplorer(calculatedLocalFile);
       }
     } catch (ex: any) {
-      this.extension.logger.appendErrorToMessages('sftpfs.showInSystemExplorer', 'Error', ex);
+      this.logger.logError('[sftpfs.showInSystemExplorer] Error', ex);
       vscode.window.showErrorMessage(ex.message);
     }
   }
