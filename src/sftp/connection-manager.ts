@@ -11,7 +11,7 @@ export class SFTPConnectionManager {
   private activeSftpResourceManagers: Map<string, SFTPResourceManager> = new Map();
   private logger: ScopedLogger = new ScopedLogger('ConnectionManager');
 
-  resourceManagersChange: Subject<void> = new Subject<void>();
+  resourceManagersChange: Subject<string> = new Subject<string>();
 
   constructor(private extension: SFTPExtension) {}
 
@@ -22,9 +22,10 @@ export class SFTPConnectionManager {
     this.logger.logMessage(
       'Created connection pool for remote "' + openConfiguration.remoteName + '".',
     );
+
     const pool = new SFTPResourceManager(this.extension, openConfiguration, testSuite);
     this.activeSftpResourceManagers.set(openConfiguration.remoteName, pool);
-    this.resourceManagersChange.next();
+    this.resourceManagersChange.next(openConfiguration.remoteName);
   }
 
   hasActiveResourceManager(remoteName: string) {
@@ -52,7 +53,7 @@ export class SFTPConnectionManager {
     const resourceManager = this.getResourceManager(remoteName);
     if (resourceManager !== undefined) {
       this.activeSftpResourceManagers.delete(remoteName);
-      this.resourceManagersChange.next();
+      this.resourceManagersChange.next(remoteName);
       try {
         await resourceManager.close();
       } catch (ex: any) {
@@ -84,8 +85,8 @@ export class SFTPConnectionManager {
           ex,
         );
       }
+      this.resourceManagersChange.next(resourceManager.remoteName);
     }
-    this.resourceManagersChange.next();
   }
 
   async reconnect(remoteName: string) {
@@ -100,7 +101,7 @@ export class SFTPConnectionManager {
       } catch (ex: any) {
         this.logger.logError('Failed to reconnect pool for remote "' + remoteName + '": ', ex);
       }
-      this.resourceManagersChange.next();
+      this.resourceManagersChange.next(remoteName);
     }
   }
 }
