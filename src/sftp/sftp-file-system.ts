@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { FileEntryWithStats, SFTPWrapper, Stats } from 'ssh2';
+import type { FileEntryWithStats, SFTPWrapper, Stats } from 'ssh2';
 import upath from 'upath';
 import * as childProcess from 'child_process';
 import fs from 'fs';

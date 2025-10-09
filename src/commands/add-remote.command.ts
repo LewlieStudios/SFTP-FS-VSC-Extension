@@ -12,8 +12,8 @@ export class AddRemoteCommand extends BaseCommand {
         retainContextWhenHidden: true,
         localResourceRoots: [
           vscode.Uri.joinPath(this.extension.context.extensionUri, 'media'),
-          vscode.Uri.joinPath(this.extension.context.extensionUri, 'node_modules'),
           vscode.Uri.joinPath(this.extension.context.extensionUri, 'images'),
+          vscode.Uri.joinPath(this.extension.context.extensionUri, 'webview'),
         ],
       },
     );
@@ -127,19 +127,15 @@ export class AddRemoteCommand extends BaseCommand {
     // Create a URI that can be used inside the webview for the local script
     const vscodeElementsLocal = vscode.Uri.joinPath(
       this.extension.context.extensionUri,
-      'node_modules',
-      '@vscode-elements',
-      'elements',
-      'dist',
+      'webview',
+      'vscode',
       'bundled.js',
     );
     const vscodeElementsPath = webview.asWebviewUri(vscodeElementsLocal);
     const codiconsLocal = vscode.Uri.joinPath(
       this.extension.context.extensionUri,
-      'node_modules',
-      '@vscode',
-      'codicons',
-      'dist',
+      'webview',
+      'vscode',
       'codicon.css',
     );
     const codiconsPath = webview.asWebviewUri(codiconsLocal);

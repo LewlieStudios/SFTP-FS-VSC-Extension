@@ -75,7 +75,7 @@
 			// Prevent bundling native or VSCode-provided modules. `ssh2` contains a native
 			// dependency (sshcrypto.node) that should remain as a node_modules file, so
 			// we mark it as external to avoid esbuild trying to bundle it.
-			external: ['vscode', 'ssh2'],
+			external: ['vscode'],
 			logLevel: 'silent',
 			plugins: [
 				/* add to the end of plugins array */

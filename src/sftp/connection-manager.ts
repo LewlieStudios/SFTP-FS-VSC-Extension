@@ -1,5 +1,5 @@
 import Client from 'ssh2-sftp-client';
-import { SFTPWrapper } from 'ssh2';
+import type { SFTPWrapper } from 'ssh2';
 import { RemoteConfiguration } from '../base/configuration.js';
 import { Pool, PoolFactory } from 'lightning-pool';
 import { workspace } from 'vscode';

@@ -185,31 +185,17 @@ export class ConnectionsView extends BaseWebViewProvider {
       enableScripts: true,
       localResourceRoots: [
         vscode.Uri.joinPath(this.extension.context.extensionUri, 'media'),
-        vscode.Uri.joinPath(this.extension.context.extensionUri, 'node_modules'),
         vscode.Uri.joinPath(this.extension.context.extensionUri, 'images'),
+        vscode.Uri.joinPath(this.extension.context.extensionUri, 'webview'),
       ],
     };
 
     // Content
     const placeholderVsCodeElementsScriptPath = webview.asWebviewUri(
-      vscode.Uri.joinPath(
-        this.extension.context.extensionUri,
-        'node_modules',
-        '@vscode-elements',
-        'elements',
-        'dist',
-        'bundled.js',
-      ),
+      vscode.Uri.joinPath(this.extension.context.extensionUri, 'webview', 'vscode', 'bundled.js'),
     );
     const placeholderVsCodeCodiconsStylePath = webview.asWebviewUri(
-      vscode.Uri.joinPath(
-        this.extension.context.extensionUri,
-        'node_modules',
-        '@vscode',
-        'codicons',
-        'dist',
-        'codicon.css',
-      ),
+      vscode.Uri.joinPath(this.extension.context.extensionUri, 'webview', 'vscode', 'codicon.css'),
     );
     const placeholderNonce = this.nonce();
     const placeholderCSP = `default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource} data:; script-src 'nonce-${placeholderNonce}'; connect-src https:;`;
@@ -217,8 +203,8 @@ export class ConnectionsView extends BaseWebViewProvider {
     // Load content from connections.view.html and replace placeholders
     const filePath = vscode.Uri.joinPath(
       this.extension.context.extensionUri,
-      'src',
-      'views',
+      'webview',
+      'templates',
       'connections.view.html',
     ).fsPath;
     const content = fs
