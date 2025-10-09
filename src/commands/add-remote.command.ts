@@ -41,9 +41,23 @@ export class AddRemoteCommand extends BaseCommand {
           return;
         }
 
+        data.name = data.name.trim().toLowerCase();
+        if (data.name.length === 0) {
+          vscode.window.showErrorMessage('Remote name cannot be empty.');
+          return;
+        }
+
         const portNumber = typeof data.port === 'number' ? data.port : parseInt(String(data.port));
         if (isNaN(portNumber) || portNumber <= 0) {
           vscode.window.showErrorMessage('Port must be a valid number.');
+          return;
+        }
+
+        // only allow [a-zA-Z0-9-_ ] in name
+        if (!/^[a-z0-9-_ ]+$/.test(data.name)) {
+          vscode.window.showErrorMessage(
+            'Remote name can only contain letters (a-z), numbers (0-9), spaces( ), hyphens (-) and underscores (_)',
+          );
           return;
         }
 
@@ -142,6 +156,11 @@ export class AddRemoteCommand extends BaseCommand {
         <title>Add Remote Connection</title>
         <script type="module" src="${vscodeElementsPath}" nonce="${nonce}"></script>
         <link rel="stylesheet" href="${codiconsPath}" id="vscode-codicon-stylesheet">
+        <style>
+          .bottom-space {
+            height: 50px;
+          }
+        </style>
       </head>
       <body>
         <vscode-form-container responsive="true">
@@ -159,7 +178,7 @@ export class AddRemoteCommand extends BaseCommand {
             ></vscode-textfield>
             <vscode-form-helper>
               <p>
-                A friendly name to identify this remote connection.
+                A friendly name to identify this remote configuration. Allowed characters are letters <code>a-z</code>, numbers <code>0-9</code>, spaces <code> </code>, hyphens <code>-</code> and underscores <code>_</code>.
               </p>
             </vscode-form-helper>
           </vscode-form-group>
@@ -240,8 +259,11 @@ export class AddRemoteCommand extends BaseCommand {
               </p>
             </vscode-form-helper>
           </vscode-form-group>
-          <vscode-button id="submit-button" icon="add">Add Remote</vscode-button>
+          <vscode-form-group>
+            <vscode-button id="submit-button" icon="add">Add Remote</vscode-button>
+          </vscode-form-group>
         </vscode-form-container>
+        <div class="bottom-space"></div>
         <script nonce="${nonce}">
           (function () {
             // Acquire the VS Code API for the webview

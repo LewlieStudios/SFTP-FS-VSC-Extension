@@ -25,24 +25,26 @@ export class GlobalLogger {
   }
 
   appendLineToMessages(prefix: string, content: string) {
-    console.info(content);
-    this.messagesChannel.appendLine('[' + prefix + '] ' + content);
+    const timeFormat = new Date().toISOString().replace('T', ' ').replace('Z', '');
+    const line = timeFormat + ' [' + prefix + '] ' + content;
+    console.info(line);
+    this.messagesChannel.appendLine(line);
   }
 
   appendErrorToMessages(prefix: string, usefulMessage: string, error: Error) {
-    console.error(
-      '[' +
-        prefix +
-        '] An error occurred: ' +
-        usefulMessage +
-        ': (' +
-        error.message +
-        '): ' +
-        error.stack,
-    );
-    this.messagesErrChannel.appendLine(
-      '[' + prefix + '] ' + usefulMessage + ': (' + error.message + '): ' + error.stack,
-    );
+    const timeFormat = new Date().toISOString().replace('T', ' ').replace('Z', '');
+    const line =
+      timeFormat +
+      ' [' +
+      prefix +
+      '] ' +
+      usefulMessage +
+      ': (' +
+      error.message +
+      '): ' +
+      error.stack;
+    console.error(line);
+    this.messagesErrChannel.appendLine(line);
   }
 }
 

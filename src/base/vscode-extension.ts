@@ -1,5 +1,4 @@
 import { SFTPFileSystem } from '../sftp/sftp-file-system.js';
-import { QuickPickItemWithValue } from '../models/quick-pick.model.js';
 import * as vscode from 'vscode';
 import { Configuration } from './configuration.js';
 import { GlobalLogger } from './logger.js';
@@ -21,6 +20,7 @@ import { DownloadRemoteFileCommand } from '../commands/download-remote-file.comm
 import { UploadLocalFileCommand } from '../commands/upload-local-file.command.js';
 import { RefreshDirectoryCommand } from '../commands/refresh-directory.command.js';
 import { ConnectionsView } from '../views/connections.view.js';
+import { DisconnectCommand } from '../commands/disconnect.command.js';
 
 export class SFTPExtension {
   static instance?: SFTPExtension;
@@ -32,7 +32,6 @@ export class SFTPExtension {
   sftpFileDecoration!: SFTPFileDecoration;
 
   vscodeStatusBarItem!: vscode.StatusBarItem;
-  vscodeRemoteConnectQuickPick?: vscode.QuickPick<QuickPickItemWithValue> = undefined;
 
   constructor(public context: vscode.ExtensionContext) {}
 
@@ -110,6 +109,7 @@ export class SFTPExtension {
     new DownloadRemoteFileCommand(this, 'sftpfs.downloadRemoteFile').register();
     new UploadLocalFileCommand(this, 'sftpfs.uploadLocalFile').register();
     new RefreshDirectoryCommand(this, 'sftpfs.refreshDirectory').register();
+    new DisconnectCommand(this, 'sftpfs.disconnectRemote').register();
   }
 
   registerViews() {

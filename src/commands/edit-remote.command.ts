@@ -32,6 +32,24 @@ export class EditRemoteCommand extends BaseCommand {
       return;
     }
 
+    // Check if not in use
+    const inUse = this.extension.connectionManager.hasActiveResourceManager(normalizedRemoteName);
+    if (inUse) {
+      vscode.window
+        .showErrorMessage(
+          'Remote connection "' +
+            selectedRemote +
+            '" is currently in use, please disconnect it before editing.',
+          'Disconnect',
+        )
+        .then((res) => {
+          if (res === 'Disconnect') {
+            vscode.commands.executeCommand('sftpfs.disconnectRemote', normalizedRemoteName);
+          }
+        });
+      return;
+    }
+
     const panel = vscode.window.createWebviewPanel(
       'sftpfs.editRemote',
       'SFTP - Edit Remote',
@@ -78,10 +96,9 @@ export class EditRemoteCommand extends BaseCommand {
           return;
         }
 
-        const trimmedName = data.name.trim();
-        const normalizedNewName = trimmedName.toLowerCase();
-        if (trimmedName.length === 0) {
-          vscode.window.showErrorMessage('Name is required.');
+        data.name = data.name.trim().toLowerCase();
+        if (data.name.length === 0) {
+          vscode.window.showErrorMessage('Remote name cannot be empty.');
           return;
         }
 
@@ -92,14 +109,22 @@ export class EditRemoteCommand extends BaseCommand {
           return;
         }
 
+        // only allow [a-zA-Z0-9-_ ] in name
+        if (!/^[a-z0-9-_ ]+$/.test(data.name)) {
+          vscode.window.showErrorMessage(
+            'Remote name can only contain letters (a-z), numbers (0-9), spaces( ), hyphens (-) and underscores (_)',
+          );
+          return;
+        }
+
         const currentNames = this.extension.configuration.getRemotesConfigurationNames();
         const normalizedOriginal = normalizedRemoteName;
-        if (normalizedNewName !== normalizedOriginal) {
+        if (data.name !== normalizedOriginal) {
           for (const name of currentNames) {
-            if (name.trim().toLowerCase() === normalizedNewName) {
+            if (name.trim().toLowerCase() === data.name) {
               vscode.window.showErrorMessage(
                 'Remote configuration with name "' +
-                  trimmedName +
+                  data.name +
                   '" already exists, please choose another name for this remote.',
                 { modal: true },
               );
@@ -109,7 +134,7 @@ export class EditRemoteCommand extends BaseCommand {
         }
 
         await this.extension.configuration.saveRemoteConfiguration(
-          trimmedName,
+          data.name,
           data.host,
           portNumber,
           data.username,
@@ -117,7 +142,7 @@ export class EditRemoteCommand extends BaseCommand {
           data.password,
         );
 
-        if (normalizedNewName !== normalizedOriginal) {
+        if (data.name !== normalizedOriginal) {
           await this.extension.configuration.removeRemoteConfiguration([normalizedOriginal]);
         }
 
@@ -125,9 +150,9 @@ export class EditRemoteCommand extends BaseCommand {
 
         vscode.window
           .showInformationMessage(
-            normalizedNewName !== normalizedOriginal
-              ? 'Remote updated and renamed to "' + trimmedName + '"'
-              : 'Remote "' + trimmedName + '" updated',
+            data.name !== normalizedOriginal
+              ? 'Remote updated and renamed to "' + data.name + '"'
+              : 'Remote "' + data.name + '" updated',
             'Open configuration',
           )
           .then((res) => {
@@ -203,6 +228,11 @@ export class EditRemoteCommand extends BaseCommand {
         <title>Edit Remote</title>
         <script type="module" src="${vscodeElementsPath}" nonce="${nonce}"></script>
         <link rel="stylesheet" href="${codiconsPath}" id="vscode-codicon-stylesheet">
+        <style>
+          .bottom-space {
+            height: 50px;
+          }
+        </style>
       </head>
       <body>
         <vscode-form-container responsive="true">
@@ -221,7 +251,7 @@ export class EditRemoteCommand extends BaseCommand {
             ></vscode-textfield>
             <vscode-form-helper>
               <p>
-                A friendly name to identify this remote configuration.
+                A friendly name to identify this remote configuration. Allowed characters are letters <code>a-z</code>, numbers <code>0-9</code>, spaces <code> </code>, hyphens <code>-</code> and underscores <code>_</code>.
               </p>
             </vscode-form-helper>
           </vscode-form-group>
@@ -305,8 +335,11 @@ export class EditRemoteCommand extends BaseCommand {
               </p>
             </vscode-form-helper>
           </vscode-form-group>
-          <vscode-button id="submit-button" icon="save">Save Changes</vscode-button>
+          <vscode-form-group>
+            <vscode-button id="submit-button" icon="save">Save Changes</vscode-button>
+          </vscode-form-group>
         </vscode-form-container>
+        <div class="bottom-space"></div>
         <script nonce="${nonce}">
           (function () {
             // Acquire the VS Code API for the webview

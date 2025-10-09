@@ -30,6 +30,25 @@ export class RemoveRemoteCommand extends BaseCommand {
       return;
     }
 
+    for (const selection of remoteNames) {
+      const active = this.extension.connectionManager.hasActiveResourceManager(selection);
+      if (active) {
+        vscode.window
+          .showErrorMessage(
+            'Remote connection "' +
+              selection +
+              '" is currently in use, please disconnect before removing it.',
+            'Disconnect',
+          )
+          .then((res) => {
+            if (res === 'Disconnect') {
+              vscode.commands.executeCommand('sftpfs.disconnectRemote', selection);
+            }
+          });
+        return;
+      }
+    }
+
     // Remove remote configuration
     this.extension.configuration
       .removeRemoteConfiguration(remoteNames)

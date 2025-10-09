@@ -2,13 +2,16 @@ import { asyncScheduler, Subject, Subscription, throttleTime } from 'rxjs';
 import { SFTPExtension } from '../base/vscode-extension';
 import { BaseWebViewProvider } from './base.view';
 import * as vscode from 'vscode';
+import { ScopedLogger } from '../base/logger';
 
 export class ConnectionsView extends BaseWebViewProvider {
   activeWebviewView?: vscode.WebviewView;
   lastProvidedConnections: Array<ConnectionItem> = [];
 
+  private connectionManagerSubscription?: Subscription;
   private poolChangeSubscriptions: Map<string, Subscription> = new Map();
   private provideConnectionListChange = new Subject<void>();
+  private logger = new ScopedLogger('ConnectionsView');
 
   constructor(extension: SFTPExtension) {
     super('sftpfs.manage-connections', extension);
@@ -26,7 +29,7 @@ export class ConnectionsView extends BaseWebViewProvider {
   provideConnectionsList() {
     if (!this.activeWebviewView) return;
 
-    this.extension.logger.appendLineToMessages;
+    this.logger.logMessage('Providing connections list');
 
     // Get connections from configuration
     const remotes = this.extension.configuration.getRemotesConfiguration();
@@ -59,7 +62,10 @@ export class ConnectionsView extends BaseWebViewProvider {
           name: remoteName,
           host: config.host || 'Unknown host',
           status: isActive ? 'active' : 'inactive',
-          displayStatus: isActive ? 'Active (' + totalConnections + ' connections)' : 'Inactive',
+          displayStatus: isActive ? 'Active' : 'Inactive',
+          totalConnections: totalConnections,
+          localFolderConfigured:
+            this.extension.configuration.getWorkDirForRemote(remoteName) !== undefined,
         } as ConnectionItem;
       })
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -100,6 +106,11 @@ export class ConnectionsView extends BaseWebViewProvider {
     this.activeWebviewView = webviewView;
     const webview = webviewView.webview;
 
+    this.connectionManagerSubscription =
+      this.extension.connectionManager.resourceManagersChange.subscribe(() => {
+        this.provideConnectionListChange.next();
+      });
+
     this.provideConnectionListChange
       .pipe(throttleTime(2500, asyncScheduler, { leading: true, trailing: true })) // To prevent unresponsive UI, we throttle the updates to 2.5 seconds intervals
       .subscribe(() => {
@@ -118,6 +129,7 @@ export class ConnectionsView extends BaseWebViewProvider {
       this.poolChangeSubscriptions.forEach((subscription) => subscription.unsubscribe());
       this.poolChangeSubscriptions.clear();
       this.provideConnectionListChange.complete();
+      this.connectionManagerSubscription?.unsubscribe();
     });
 
     // Actions
@@ -132,7 +144,15 @@ export class ConnectionsView extends BaseWebViewProvider {
         case 'connections.connect':
           // debug
           const remoteName = message.data;
-          vscode.window.showInformationMessage(`Connect to connection: ${remoteName}`);
+          const connectAction =
+            !this.extension.connectionManager.hasActiveResourceManager(remoteName);
+          if (connectAction) {
+            // execute connect command
+            vscode.commands.executeCommand('sftpfs.connectRemote', remoteName);
+          } else {
+            // execute disconnect command
+            vscode.commands.executeCommand('sftpfs.disconnectRemote', remoteName);
+          }
           break;
         case 'connections.edit':
           const editRemoteName = message.data;
@@ -354,10 +374,16 @@ export class ConnectionsView extends BaseWebViewProvider {
 
           .badge-active {
             background-color: #4CAF50;
+            margin-right: 3px;
           }
 
           .badge-inactive {
             background-color: #4b4b4bff;
+            margin-right: 3px;
+          }
+
+          .badge-connections {
+            background-color: #007acc;
           }
         </style>
       </head>
@@ -408,6 +434,10 @@ export class ConnectionsView extends BaseWebViewProvider {
               const connectionsList = document.getElementById('connections-list');
               connectionsList.innerHTML = '';
               connections.forEach((connection) => {
+                const isActive = connection.status === 'active';
+                const connectIcon = isActive ? 'debug-disconnect' : 'plug';
+                const connectTitle = isActive ? 'Disconnect' : 'Connect';
+                const connectLabel = isActive ? 'Disconnect' : 'Connect';
                 const article = document.createElement('article');
                 article.className = 'connection-item';
                 article.innerHTML = \`
@@ -419,12 +449,13 @@ export class ConnectionsView extends BaseWebViewProvider {
                     <span class="connection-item__meta">\${connection.host}</span>
                     <div>
                       <span class="connection-item__badge badge-\${connection.status}">\${connection.displayStatus}</span>
+                      <span class="connection-item__badge badge-connections">\${connection.totalConnections} connections</span>
                     </div>
                   </div>
                   <div class="connection-item__actions">
-                    <vscode-button appearance="icon" aria-label="Connect" title="Connect" icon="plug" id="connect-button-\${connection.id}"></vscode-button>
-                    <vscode-button appearance="icon" aria-label="Edit" title="Edit" icon="edit" id="edit-button-\${connection.id}"></vscode-button>
-                    <vscode-button appearance="icon" aria-label="Open Local Folder" title="Open Local Folder" icon="folder" id="open-folder-button-\${connection.id}"></vscode-button>
+                    <vscode-button appearance="icon" aria-label="\${connectLabel}" title="\${connectTitle}" icon="\${connectIcon}" id="connect-button-\${connection.id}"></vscode-button>
+                    <vscode-button appearance="icon" aria-label="Edit" title="Edit" icon="edit" id="edit-button-\${connection.id}" \${connection.status === 'inactive' ? '' : 'disabled'}></vscode-button>
+                    <vscode-button appearance="icon" aria-label="Open Local Folder" title="Open Local Folder" icon="folder" id="open-folder-button-\${connection.id}" \${connection.localFolderConfigured ? '' : 'disabled'}></vscode-button>
                   </div>
                 \`;
                 connectionsList.appendChild(article);
@@ -465,4 +496,6 @@ interface ConnectionItem {
   host: string;
   status: 'active' | 'inactive';
   displayStatus: string;
+  totalConnections: number;
+  localFolderConfigured: boolean;
 }

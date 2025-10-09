@@ -123,6 +123,11 @@
         "category": "SFTP FS"
       },
       {
+        "command": "sftpfs.disconnectRemote",
+        "title": "Disconnect from Remote...",
+        "category": "SFTP FS"
+      },
+      {
         "command": "sftpfs.bulkFileUpload",
         "title": "Bulk file upload...",
         "category": "SFTP FS"

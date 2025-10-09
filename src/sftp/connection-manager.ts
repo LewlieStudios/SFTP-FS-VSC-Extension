@@ -11,6 +11,8 @@ export class SFTPConnectionManager {
   private activeSftpResourceManagers: Map<string, SFTPResourceManager> = new Map();
   private logger: ScopedLogger = new ScopedLogger('ConnectionManager');
 
+  resourceManagersChange: Subject<void> = new Subject<void>();
+
   constructor(private extension: SFTPExtension) {}
 
   async createResourceManager(
@@ -22,18 +24,24 @@ export class SFTPConnectionManager {
     );
     const pool = new SFTPResourceManager(this.extension, openConfiguration, testSuite);
     this.activeSftpResourceManagers.set(openConfiguration.remoteName, pool);
+    this.resourceManagersChange.next();
   }
 
   hasActiveResourceManager(remoteName: string) {
-    return this.activeSftpResourceManagers.has(remoteName);
+    const resourceManager = this.getResourceManager(remoteName);
+    return resourceManager !== undefined && resourceManager.closed === false;
+  }
+
+  getActiveResourceManagers() {
+    return Array.from(this.activeSftpResourceManagers.values()).filter((rm) => !rm.closed);
   }
 
   getResourceManager(remoteName: string) {
-    const pool = this.activeSftpResourceManagers.get(remoteName);
-    if (pool !== undefined && pool.terminated) {
-      throw Error('Pool is terminated');
+    const resourceManager = this.activeSftpResourceManagers.get(remoteName);
+    if (resourceManager !== undefined && resourceManager.closed) {
+      throw Error('Resource Manager is already terminated');
     }
-    return pool;
+    return resourceManager;
   }
 
   async destroyResourceManager(remoteName: string) {
@@ -41,11 +49,12 @@ export class SFTPConnectionManager {
       return;
     }
 
-    const pool = this.activeSftpResourceManagers.get(remoteName);
-    if (pool !== undefined) {
+    const resourceManager = this.getResourceManager(remoteName);
+    if (resourceManager !== undefined) {
       this.activeSftpResourceManagers.delete(remoteName);
+      this.resourceManagersChange.next();
       try {
-        await pool.close();
+        await resourceManager.close();
       } catch (ex: any) {
         this.logger.logError('Failed to close pool for remote "' + remoteName + '": ', ex);
       }
@@ -53,14 +62,45 @@ export class SFTPConnectionManager {
   }
 
   async destroyAll() {
-    for (const connection of this.activeSftpResourceManagers.values()) {
-      await connection.close();
+    for (const resourceManager of this.activeSftpResourceManagers.values()) {
+      try {
+        await resourceManager.close();
+      } catch (ex: any) {
+        this.logger.logError(
+          'Failed to close pool for remote "' + resourceManager.remoteName + '": ',
+          ex,
+        );
+      }
     }
   }
 
-  async reconnect() {
-    for (const connection of this.activeSftpResourceManagers.values()) {
-      await connection.reconnect();
+  async reconnectAll() {
+    for (const resourceManager of this.activeSftpResourceManagers.values()) {
+      try {
+        await resourceManager.reconnect();
+      } catch (ex: any) {
+        this.logger.logError(
+          'Failed to reconnect pool for remote "' + resourceManager.remoteName + '": ',
+          ex,
+        );
+      }
+    }
+    this.resourceManagersChange.next();
+  }
+
+  async reconnect(remoteName: string) {
+    if (!this.hasActiveResourceManager(remoteName)) {
+      return;
+    }
+
+    const resourceManager = this.getResourceManager(remoteName);
+    if (resourceManager !== undefined) {
+      try {
+        await resourceManager.reconnect();
+      } catch (ex: any) {
+        this.logger.logError('Failed to reconnect pool for remote "' + remoteName + '": ', ex);
+      }
+      this.resourceManagersChange.next();
     }
   }
 }
@@ -83,7 +123,7 @@ export class SFTPResourceManager {
 
   private poolPromise: Promise<void>;
 
-  terminated = false;
+  closed = false;
 
   remoteName: string;
   configuration: RemoteConfiguration;
@@ -293,24 +333,28 @@ export class SFTPResourceManager {
   }
 
   async close() {
-    this.terminated = true;
+    this.closed = true;
 
     let error1: any = null;
     let error2: any = null;
 
+    this.logger.logMessage('Closing connection pool...');
+
     try {
-      await this.passivePool.closeAsync(true);
+      this.passivePool.close(true);
     } catch (ex: any) {
       this.logger.logError('Failed to close passive pool: ', ex);
       error1 = ex;
     }
 
     try {
-      await this.heavyPool.closeAsync(true);
+      this.heavyPool.close(true);
     } catch (ex: any) {
       this.logger.logError('Failed to close heavy pool: ', ex);
       error2 = ex;
     }
+
+    this.logger.logMessage('Connection pool closed.');
 
     this.heavyPoolChange.next();
     this.heavyPoolChange.complete();
@@ -325,7 +369,7 @@ export class SFTPResourceManager {
   }
 
   async getPool(type: PoolType) {
-    if (this.terminated) {
+    if (this.closed) {
       throw Error('Pool terminated.');
     }
     // We need await pool to finish...
@@ -338,11 +382,9 @@ export class SFTPResourceManager {
     this.poolPromise = new Promise(async (resolve, reject) => {
       try {
         this.logger.logMessage('[pool] [task] Performing reconnection...');
-        this.terminated = true;
         await this.passivePool.closeAsync(true);
         await this.heavyPool.closeAsync(true);
         await this.setupPool();
-        this.terminated = false;
         resolve();
       } catch (ex: any) {
         this.logger.logError('Failed to reconnect: ', ex);
