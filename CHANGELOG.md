@@ -1,5 +1,15 @@
 # 📋 Change Log
 
+## 🔹 1.2.2
+
+* Feature: Added "SFTP FS: Disconnect from Remote" command to close an open SFTP connection.
+* Improvement: Improved the process of adding a new connection using the "SFTP FS: Add Remote" command.
+* Feature: Added "SFTP FS: Edit Remote" command to edit a previously configured remote connection.
+* Technical Change: Restricted remote connection names to a set of characters: letters (a-z), numbers (0-9), spaces ( ), hyphens (-), and underscores (_).
+* Technical Change: Performed a cleanup of the project's codebase.
+* Improvement: Added a panel in the activity bar where you can now manage and view the status of all current SFTP remote connections.
+![Optimized SFTP file system](images/v1.2.2-activitybar.png)
+
 ## 🔹 1.2.1
 
 * Hotfix: Fixed an issue when deleting a file or folder that causes the file or folder to reappear in the file explorer after deletion, this was a visual bug because the file already was removed from the SFTP server.
