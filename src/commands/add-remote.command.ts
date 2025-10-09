@@ -1,29 +1,91 @@
-import { RemoteConfiguration } from '../base/configuration';
-import { SFTPExtension } from '../base/vscode-extension';
 import { BaseCommand } from './base-command';
 import * as vscode from 'vscode';
 
 export class AddRemoteCommand extends BaseCommand {
   async callback() {
-    const data = await AddRemoteCommand.showFormModifyRemoteConfiguration(
-      this.extension,
-      undefined,
+    const panel = vscode.window.createWebviewPanel(
+      'sftpfs.addRemote',
+      'SFTP - Add Remote',
+      vscode.ViewColumn.Active,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [
+          vscode.Uri.joinPath(this.extension.context.extensionUri, 'media'),
+          vscode.Uri.joinPath(this.extension.context.extensionUri, 'images'),
+          vscode.Uri.joinPath(this.extension.context.extensionUri, 'webview'),
+        ],
+      },
     );
-    if (!data) {
-      return;
-    }
+    panel.webview.html = this.createWebviewContent(panel.webview);
+    panel.title = 'Add Remote Connection';
+    // Listen for messages from the webview (the form submit)
+    const messageListener = panel.webview.onDidReceiveMessage(async (message) => {
+      try {
+        if (!message || message.command !== 'submit') {
+          return;
+        }
 
-    // Save configuration...
-    this.extension.configuration
-      .saveRemoteConfiguration(
-        data.name,
-        data.host,
-        parseInt(data.port),
-        data.username,
-        data.remotePath ?? '/',
-        data.password,
-      )
-      .then(() => {
+        const data = message.data as {
+          name?: string;
+          host?: string;
+          port?: string | number;
+          username?: string;
+          password?: string | undefined;
+          remotePath?: string | undefined;
+        };
+
+        // Basic validation
+        if (!data || !data.name || !data.host || !data.port || !data.username) {
+          vscode.window.showErrorMessage('Please fill all required fields.');
+          return;
+        }
+
+        data.name = data.name.trim().toLowerCase();
+        if (data.name.length === 0) {
+          vscode.window.showErrorMessage('Remote name cannot be empty.');
+          return;
+        }
+
+        const portNumber = typeof data.port === 'number' ? data.port : parseInt(String(data.port));
+        if (isNaN(portNumber) || portNumber <= 0) {
+          vscode.window.showErrorMessage('Port must be a valid number.');
+          return;
+        }
+
+        // only allow [a-zA-Z0-9-_ ] in name
+        if (!/^[a-z0-9-_ ]+$/.test(data.name)) {
+          vscode.window.showErrorMessage(
+            'Remote name can only contain letters (a-z), numbers (0-9), spaces( ), hyphens (-) and underscores (_)',
+          );
+          return;
+        }
+
+        const currentNames = this.extension.configuration.getRemotesConfigurationNames();
+        for (const name of currentNames) {
+          if (name.trim().toLowerCase() === data.name!.trim().toLowerCase()) {
+            vscode.window.showErrorMessage(
+              'Remote configuration with name "' +
+                data.name +
+                '" already exists, please choose another name for this remote.',
+              { modal: true },
+            );
+            return;
+          }
+        }
+
+        // Save configuration...
+        await this.extension.configuration.saveRemoteConfiguration(
+          data.name,
+          data.host,
+          portNumber,
+          data.username,
+          data.remotePath ?? '/',
+          data.password,
+        );
+
+        panel.dispose();
+
         vscode.window
           .showInformationMessage('Remote "' + data.name + "' added.", 'Open configuration')
           .then((res) => {
@@ -31,156 +93,211 @@ export class AddRemoteCommand extends BaseCommand {
               vscode.commands.executeCommand('workbench.action.openSettings', '@ext:lewlie.sftpfs');
             }
           });
-      })
-      .catch((ex) => {
+      } catch (ex) {
         vscode.window.showErrorMessage('Something went wrong...');
+        const err = ex instanceof Error ? ex : new Error(String(ex));
         this.extension.logger.appendErrorToMessages(
           'sftpfs.addRemote',
           'Unable to save remote configuration.',
-          ex,
+          err,
         );
-      });
+      }
+    });
+
+    // Dispose the listener when panel is closed
+    panel.onDidDispose(() => {
+      try {
+        messageListener.dispose();
+      } catch (e) {
+        // ignore
+      }
+    });
   }
 
-  static async showFormModifyRemoteConfiguration(
-    extension: SFTPExtension,
-    existingConfigurationName: string | undefined,
-  ) {
-    const existingConfiguration: RemoteConfiguration | undefined = existingConfigurationName
-      ? extension.configuration.getRemoteConfiguration(existingConfigurationName)
-      : undefined;
-
-    if (existingConfigurationName !== undefined && existingConfiguration === undefined) {
-      vscode.window.showErrorMessage(
-        'Remote configuration for "' + existingConfigurationName + '" not found.',
-      );
-      return;
+  nonce() {
+    let text = '';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < 32; i++) {
+      text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
+    return text;
+  }
 
-    const title = existingConfigurationName
-      ? 'Editing Remote "' + existingConfigurationName + '"'
-      : 'Add Remote';
-    const name = (
-      await vscode.window.showInputBox({
-        title,
-        prompt: 'Name to use for this remote configuration',
-        placeHolder: 'A friendly name to identify this remote configuration',
-        value: existingConfigurationName,
-        validateInput: async (value) => {
-          if (value.trim().length === 0) {
-            return {
-              message: 'Name should not be empty.',
-              severity: vscode.InputBoxValidationSeverity.Error,
-            } as vscode.InputBoxValidationMessage;
+  createWebviewContent(webview: vscode.Webview) {
+    // Create a URI that can be used inside the webview for the local script
+    const vscodeElementsLocal = vscode.Uri.joinPath(
+      this.extension.context.extensionUri,
+      'webview',
+      'vscode',
+      'bundled.js',
+    );
+    const vscodeElementsPath = webview.asWebviewUri(vscodeElementsLocal);
+    const codiconsLocal = vscode.Uri.joinPath(
+      this.extension.context.extensionUri,
+      'webview',
+      'vscode',
+      'codicon.css',
+    );
+    const codiconsPath = webview.asWebviewUri(codiconsLocal);
+    const nonce = this.nonce();
+    const csp = `default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource} data:; script-src 'nonce-${nonce}'; connect-src https:;`;
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="Content-Security-Policy" content="${csp}">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Add Remote Connection</title>
+        <script type="module" src="${vscodeElementsPath}" nonce="${nonce}"></script>
+        <link rel="stylesheet" href="${codiconsPath}" id="vscode-codicon-stylesheet">
+        <style>
+          .bottom-space {
+            height: 50px;
           }
+        </style>
+      </head>
+      <body>
+        <vscode-form-container responsive="true">
+          <h1>Add Remote Connection</h1>
+          <p>Please fill the information to add a new remote connection.</p>
+          <vscode-divider></vscode-divider>
+          <vscode-form-group>
+            <vscode-label for="basic-textfield-name">
+              Name:
+            </vscode-label>
+            <vscode-textfield
+              id="basic-textfield-name"
+              placeholder="Friendly name for this remote"
+              required
+            ></vscode-textfield>
+            <vscode-form-helper>
+              <p>
+                A friendly name to identify this remote configuration. Allowed characters are letters <code>a-z</code>, numbers <code>0-9</code>, spaces <code> </code>, hyphens <code>-</code> and underscores <code>_</code>.
+              </p>
+            </vscode-form-helper>
+          </vscode-form-group>
+          <vscode-form-group>
+            <vscode-label for="basic-textfield-01">
+              Host:
+            </vscode-label>
+            <vscode-textfield
+              id="basic-textfield-01"
+              placeholder="Enter the host"
+              required
+            ></vscode-textfield>
+            <vscode-form-helper>
+              <p>
+                Enter the host name or IP address of the SFTP server.
+              </p>
+            </vscode-form-helper>
+          </vscode-form-group>
+          <vscode-form-group>
+            <vscode-label for="basic-textfield-02">
+              Port:
+            </vscode-label>
+            <vscode-textfield
+              id="basic-textfield-02"
+              placeholder="Enter the port"
+              value="22"
+              required
+              type="number"
+            ></vscode-textfield>
+            <vscode-form-helper>
+              <p>
+                Enter the port number of the SFTP server.
+              </p>
+            </vscode-form-helper>
+          </vscode-form-group>
+          <vscode-form-group>
+            <vscode-label for="basic-textfield-03">
+              Username:
+            </vscode-label>
+            <vscode-textfield
+              id="basic-textfield-03"
+              placeholder="Enter the username"
+              required
+            ></vscode-textfield>
+            <vscode-form-helper>
+              <p>
+                Enter the username to connect to the SFTP server.
+              </p>
+            </vscode-form-helper>
+          </vscode-form-group>
+          <vscode-form-group>
+            <vscode-label for="basic-textfield-04">
+              Password:
+            </vscode-label>
+            <vscode-textfield
+              id="basic-textfield-04"
+              placeholder="Enter the password"
+              type="password"
+            ></vscode-textfield>
+            <vscode-form-helper>
+              <p>
+                Enter the password to connect to the SFTP server.
+              </p>
+            </vscode-form-helper>
+          </vscode-form-group>
+          <vscode-form-group>
+            <vscode-label for="basic-textfield-05">
+              Remote Path:
+            </vscode-label>
+            <vscode-textfield
+              id="basic-textfield-05"
+              placeholder="Enter the remote path, for example /"
+              value="/"
+            ></vscode-textfield>
+            <vscode-form-helper>
+              <p>
+                Enter the root remote path to use
+              </p>
+            </vscode-form-helper>
+          </vscode-form-group>
+          <vscode-form-group>
+            <vscode-button id="submit-button" icon="add">Add Remote</vscode-button>
+          </vscode-form-group>
+        </vscode-form-container>
+        <div class="bottom-space"></div>
+        <script nonce="${nonce}">
+          (function () {
+            // Acquire the VS Code API for the webview
+            // @ts-ignore - acquireVsCodeApi is injected by VS Code
+            const vscode = acquireVsCodeApi();
 
-          if (
-            existingConfigurationName !== undefined &&
-            value.trim().toLowerCase() === existingConfigurationName.trim().toLowerCase()
-          ) {
-            return;
-          }
-
-          const currentNames = await extension.configuration.getRemotesConfigurationNames();
-          for (const name of currentNames) {
-            if (name.trim().toLowerCase() === value.trim().toLowerCase()) {
-              return {
-                message: 'This name is already in use, please choose another one.',
-                severity: vscode.InputBoxValidationSeverity.Error,
-              } as vscode.InputBoxValidationMessage;
+            function $id(id) {
+              return document.getElementById(id);
             }
-          }
-        },
-      })
-    )?.trim();
 
-    if (!name) {
-      return undefined;
-    }
+            const submit = $id('submit-button');
+            if (submit) {
+              submit.addEventListener('click', function (ev) {
+                // Read values from the form fields
+                const nameEl = $id('basic-textfield-name');
+                const hostEl = $id('basic-textfield-01');
+                const portEl = $id('basic-textfield-02');
+                const usernameEl = $id('basic-textfield-03');
+                const passwordEl = $id('basic-textfield-04');
+                const remotePathEl = $id('basic-textfield-05');
 
-    const host = (
-      await vscode.window.showInputBox({
-        title,
-        prompt: 'SFTP Host',
-        placeHolder: 'sftp.example.com',
-        value: existingConfiguration?.host,
-        validateInput: (value) => {
-          if (value.trim().length === 0) {
-            return {
-              message: 'Host should not be empty.',
-              severity: vscode.InputBoxValidationSeverity.Error,
-            } as vscode.InputBoxValidationMessage;
-          }
-        },
-      })
-    )?.trim();
+                const getValue = (el) => (el && el.value !== undefined ? el.value : '');
 
-    if (!host) {
-      return undefined;
-    }
+                const payload = {
+                  name: getValue(nameEl),
+                  host: getValue(hostEl),
+                  port: getValue(portEl),
+                  username: getValue(usernameEl),
+                  password: getValue(passwordEl),
+                  remotePath: getValue(remotePathEl),
+                };
 
-    const port = await vscode.window.showInputBox({
-      title,
-      prompt: 'SFTP Port',
-      placeHolder: 'Enter a valid port number, usually 22',
-      value: existingConfiguration?.port?.toString() ?? '22',
-      validateInput: (value) => {
-        if (!/^[0-9]+$/.test(value)) {
-          return {
-            message: 'Port should be a valid number.',
-            severity: vscode.InputBoxValidationSeverity.Error,
-          } as vscode.InputBoxValidationMessage;
-        }
-      },
-    });
-
-    if (!port) {
-      return undefined;
-    }
-
-    const username = (
-      await vscode.window.showInputBox({
-        title,
-        prompt: 'SFTP Username',
-        placeHolder: 'Enter username to connect',
-        value: existingConfiguration?.username,
-        validateInput: (value) => {
-          if (value.trim().length === 0) {
-            return {
-              message: 'Username should not be empty.',
-              severity: vscode.InputBoxValidationSeverity.Error,
-            } as vscode.InputBoxValidationMessage;
-          }
-        },
-      })
-    )?.trim();
-
-    if (!username) {
-      return undefined;
-    }
-
-    const password = await vscode.window.showInputBox({
-      title,
-      prompt: 'SFTP Password (optional)',
-      placeHolder: 'Leave empty to not store password',
-      password: true,
-      value: existingConfiguration?.password,
-    });
-
-    const remotePath = await vscode.window.showInputBox({
-      title,
-      prompt: 'SFTP Remote Path (optional)',
-      placeHolder: 'Enter the remote path to use as root, leave empty for /',
-      value: existingConfiguration?.remotePath ?? '/',
-    });
-
-    return {
-      name,
-      host,
-      port,
-      username,
-      password,
-      remotePath,
-    };
+                vscode.postMessage({ command: 'submit', data: payload });
+              });
+            }
+          })();
+        </script>
+      </body>
+      </html>`;
   }
 }

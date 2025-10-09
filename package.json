@@ -2,7 +2,7 @@
   "name": "sftpfs",
   "displayName": "SFTP FS",
   "description": "An extension that provides a file manager for the SFTP protocol, designed with parallel operations and speed in mind.",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "publisher": "lewlie",
   "author": {
     "name": "wirlie",
@@ -22,13 +22,33 @@
     "Other"
   ],
   "activationEvents": [
-    "onFileSystem:sftp"
+    "onFileSystem:sftp",
+    "onView:sftpfs-webview"
   ],
   "main": "./dist/extension.js",
   "repository": {
     "url": "https://github.com/LewLie/SFTP-FS-VSC-Extension"
   },
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sftpfs-manage-connections",
+          "title": "SFTP FS",
+          "icon": "images/sidebar-connections-view.svg"
+        }
+      ]
+    },
+    "views": {
+      "sftpfs-manage-connections": [
+        {
+          "id": "sftpfs.manage-connections",
+          "name": "Manage Connections",
+          "icon": "images/sidebar-connections-view.svg",
+          "type": "webview"
+        }
+      ]
+    },
     "viewsWelcome": [
       {
         "view": "explorer",
@@ -100,6 +120,11 @@
       {
         "command": "sftpfs.disconnectDirectRemote",
         "title": "SFTP: Disconnect",
+        "category": "SFTP FS"
+      },
+      {
+        "command": "sftpfs.disconnectRemote",
+        "title": "Disconnect from Remote...",
         "category": "SFTP FS"
       },
       {
@@ -422,8 +447,12 @@
     "typescript": "^5.6.3"
   },
   "dependencies": {
+    "@vscode-elements/elements": "^2.3.1",
+    "@vscode/codicons": "^0.0.40",
     "lightning-pool": "^4.10.0",
     "open": "^10.1.0",
+    "rxjs": "^7.8.2",
+    "ssh2": "^1.15.0",
     "ssh2-sftp-client": "^11.0.0",
     "upath": "^2.0.1",
     "uuid": "^11.0.2"

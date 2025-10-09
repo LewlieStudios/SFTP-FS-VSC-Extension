@@ -5,6 +5,7 @@ let extensionInstance: SFTPExtension | undefined = undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
   extensionInstance = new SFTPExtension(context);
+  vscode.workspace.onDidChangeWorkspaceFolders(() => {});
   await extensionInstance.activate();
 }
 

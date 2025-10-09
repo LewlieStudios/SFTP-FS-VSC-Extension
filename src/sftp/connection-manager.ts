@@ -1,101 +1,173 @@
 import Client from 'ssh2-sftp-client';
-import { SFTPWrapper } from 'ssh2';
+import type { SFTPWrapper } from 'ssh2';
 import { RemoteConfiguration } from '../base/configuration.js';
 import { Pool, PoolFactory } from 'lightning-pool';
 import { workspace } from 'vscode';
 import { SFTPExtension } from '../base/vscode-extension.js';
+import { Subject } from 'rxjs';
+import { ScopedLogger } from '../base/logger.js';
 
-export class ConnectionManager {
-  private openConnections: Map<string, ResourcedPool> = new Map();
+export class SFTPConnectionManager {
+  private activeSftpResourceManagers: Map<string, SFTPResourceManager> = new Map();
+  private logger: ScopedLogger = new ScopedLogger('ConnectionManager');
+
+  resourceManagersChange: Subject<string> = new Subject<string>();
 
   constructor(private extension: SFTPExtension) {}
 
-  async createPool(openConfiguration: SFTPConnectionOpen, testSuite: boolean = false) {
-    this.extension.logger.appendLineToMessages(
+  async createResourceManager(
+    openConfiguration: SFTPRuntimeConfiguration,
+    testSuite: boolean = false,
+  ) {
+    this.logger.logMessage(
       'Created connection pool for remote "' + openConfiguration.remoteName + '".',
     );
-    const pool = new ResourcedPool(this.extension, openConfiguration, testSuite);
-    this.openConnections.set(openConfiguration.remoteName, pool);
+
+    const pool = new SFTPResourceManager(this.extension, openConfiguration, testSuite);
+    this.activeSftpResourceManagers.set(openConfiguration.remoteName, pool);
+    this.resourceManagersChange.next(openConfiguration.remoteName);
   }
 
-  poolExists(remoteName: string) {
-    return this.openConnections.has(remoteName);
+  hasActiveResourceManager(remoteName: string) {
+    const resourceManager = this.getResourceManager(remoteName);
+    return resourceManager !== undefined && resourceManager.closed === false;
   }
 
-  get(remoteName: string) {
-    const pool = this.openConnections.get(remoteName);
-    if (pool !== undefined && pool.terminated) {
-      throw Error('Pool is terminated');
+  getActiveResourceManagers() {
+    return Array.from(this.activeSftpResourceManagers.values()).filter((rm) => !rm.closed);
+  }
+
+  getResourceManager(remoteName: string) {
+    const resourceManager = this.activeSftpResourceManagers.get(remoteName);
+    if (resourceManager !== undefined && resourceManager.closed) {
+      throw Error('Resource Manager is already terminated');
     }
-    return pool;
+    return resourceManager;
+  }
+
+  async destroyResourceManager(remoteName: string) {
+    if (!this.hasActiveResourceManager(remoteName)) {
+      return;
+    }
+
+    const resourceManager = this.getResourceManager(remoteName);
+    if (resourceManager !== undefined) {
+      this.activeSftpResourceManagers.delete(remoteName);
+      this.resourceManagersChange.next(remoteName);
+      try {
+        await resourceManager.close();
+      } catch (ex: any) {
+        this.logger.logError('Failed to close pool for remote "' + remoteName + '": ', ex);
+      }
+    }
   }
 
   async destroyAll() {
-    for (const entry of this.openConnections) {
-      const pool = entry[1];
-      await pool.close();
+    for (const resourceManager of this.activeSftpResourceManagers.values()) {
+      try {
+        await resourceManager.close();
+      } catch (ex: any) {
+        this.logger.logError(
+          'Failed to close pool for remote "' + resourceManager.remoteName + '": ',
+          ex,
+        );
+      }
     }
   }
 
-  async reconnect() {
-    for (const connection of this.openConnections) {
-      await connection[1].reconnect();
+  async reconnectAll() {
+    for (const resourceManager of this.activeSftpResourceManagers.values()) {
+      try {
+        await resourceManager.reconnect();
+      } catch (ex: any) {
+        this.logger.logError(
+          'Failed to reconnect pool for remote "' + resourceManager.remoteName + '": ',
+          ex,
+        );
+      }
+      this.resourceManagersChange.next(resourceManager.remoteName);
+    }
+  }
+
+  async reconnect(remoteName: string) {
+    if (!this.hasActiveResourceManager(remoteName)) {
+      return;
+    }
+
+    const resourceManager = this.getResourceManager(remoteName);
+    if (resourceManager !== undefined) {
+      try {
+        await resourceManager.reconnect();
+      } catch (ex: any) {
+        this.logger.logError('Failed to reconnect pool for remote "' + remoteName + '": ', ex);
+      }
+      this.resourceManagersChange.next(remoteName);
     }
   }
 }
 
-export interface SFTPConnectionOpen {
+export interface SFTPRuntimeConfiguration {
   remoteName: string;
   configuration: RemoteConfiguration;
 }
 
-export class ResourcedPool {
-  private heavyPool!: Pool<ConnectionProvider>;
-  private passivePool!: Pool<ConnectionProvider>;
+export class SFTPResourceManager {
+  private heavyPool!: Pool<SFTPClientHandler>;
+  private passivePool!: Pool<SFTPClientHandler>;
+
+  heavyPoolChange: Subject<void> = new Subject<void>();
+  passivePoolChange: Subject<void> = new Subject<void>();
+  poolChange: Subject<void> = new Subject<void>();
+
+  private passiveFactory: PoolFactory<SFTPClientHandler>;
+  private heavyFactory: PoolFactory<SFTPClientHandler>;
+
   private poolPromise: Promise<void>;
-  private passiveFactory: PoolFactory<ConnectionProvider>;
-  private heavyFactory: PoolFactory<ConnectionProvider>;
 
-  terminated = false;
+  closed = false;
 
   remoteName: string;
   configuration: RemoteConfiguration;
 
+  // TODO: May be there is a way to avoid this...
   testSuiteHeavyPoolMax: number = -1;
   testSuiteHeavyPoolMin: number = -1;
   testSuiteHeavyPoolMinIdle: number = -1;
   testSuiteHeavyPoolMaxQueue: number = -1;
   testSuiteHeavyPoolIdleTimeoutMillis: number = -1;
-
   testSuitePassivePoolMax: number = -1;
   testSuitePassivePoolMin: number = -1;
   testSuitePassivePoolMinIdle: number = -1;
   testSuitePassivePoolMaxQueue: number = -1;
   testSuitePassivePoolIdleTimeoutMillis: number = -1;
 
+  logger: ScopedLogger;
+
   constructor(
     private extension: SFTPExtension,
-    openConfiguration: SFTPConnectionOpen,
+    runtimeConfiguration: SFTPRuntimeConfiguration,
     testSuite: boolean = false,
   ) {
-    this.configuration = openConfiguration.configuration;
-    this.remoteName = openConfiguration.remoteName;
+    this.configuration = runtimeConfiguration.configuration;
+    this.remoteName = runtimeConfiguration.remoteName;
+    const logger = new ScopedLogger('ResourceManager-' + this.remoteName);
+    this.logger = logger;
 
     this.passiveFactory = {
       create: async function () {
-        const client = new Client('sftp-' + openConfiguration.remoteName);
-        extension.logger.appendLineToMessages(
+        const client = new Client('sftp-' + runtimeConfiguration.remoteName);
+        logger.logMessage(
           '[connection] [task] Connecting to remote SFTP "' +
-            openConfiguration.remoteName +
+            runtimeConfiguration.remoteName +
             '"....',
         );
-        const sftp = await client.connect({ ...openConfiguration.configuration });
-        extension.logger.appendLineToMessages(
+        const sftp = await client.connect({ ...runtimeConfiguration.configuration });
+        logger.logMessage(
           '[connection] [task] Connection success to remote SFTP "' +
-            openConfiguration.remoteName +
+            runtimeConfiguration.remoteName +
             '"...',
         );
-        const provider = new ConnectionProvider(client, sftp, 'passive');
+        const provider = new SFTPClientHandler(client, sftp, 'passive', 'OPEN');
 
         client.on('close', () => {
           provider.status = 'CLOSED';
@@ -122,9 +194,9 @@ export class ResourcedPool {
         return provider;
       },
       destroy: async function (provider) {
-        extension.logger.appendLineToMessages(
+        logger.logMessage(
           '[connection] [task] Destroying connection for remote SFTP "' +
-            openConfiguration.remoteName +
+            runtimeConfiguration.remoteName +
             '"...',
         );
         provider.getSFTP().end();
@@ -138,8 +210,10 @@ export class ResourcedPool {
           return;
         }
 
-        extension.logger.appendLineToMessages(
-          '[connection] [task] Validating connection for "' + openConfiguration.remoteName + '"...',
+        logger.logMessage(
+          '[connection] [task] Validating connection for "' +
+            runtimeConfiguration.remoteName +
+            '"...',
         );
         const start = Date.now();
 
@@ -157,9 +231,9 @@ export class ResourcedPool {
         const end = Date.now() - start;
 
         provider.lastValidation = Date.now();
-        extension.logger.appendLineToMessages(
+        logger.logMessage(
           '[connection] [task] Validated connection for "' +
-            openConfiguration.remoteName +
+            runtimeConfiguration.remoteName +
             '" in ' +
             end +
             'ms...',
@@ -171,19 +245,19 @@ export class ResourcedPool {
 
     this.heavyFactory = {
       create: async function () {
-        const client = new Client('sftp-' + openConfiguration.remoteName);
-        extension.logger.appendLineToMessages(
+        const client = new Client('sftp-' + runtimeConfiguration.remoteName);
+        logger.logMessage(
           '[connection] [task] Connecting to remote SFTP "' +
-            openConfiguration.remoteName +
+            runtimeConfiguration.remoteName +
             '"....',
         );
-        const sftp = await client.connect({ ...openConfiguration.configuration });
-        extension.logger.appendLineToMessages(
+        const sftp = await client.connect({ ...runtimeConfiguration.configuration });
+        logger.logMessage(
           '[connection] [task] Connection success to remote SFTP "' +
-            openConfiguration.remoteName +
+            runtimeConfiguration.remoteName +
             '"...',
         );
-        const provider = new ConnectionProvider(client, sftp, 'heavy');
+        const provider = new SFTPClientHandler(client, sftp, 'heavy', 'OPEN');
 
         client.on('close', () => {
           provider.status = 'CLOSED';
@@ -210,9 +284,9 @@ export class ResourcedPool {
         return provider;
       },
       destroy: async function (provider) {
-        extension.logger.appendLineToMessages(
+        logger.logMessage(
           '[connection] [task] Destroying connection for remote SFTP "' +
-            openConfiguration.remoteName +
+            runtimeConfiguration.remoteName +
             '"...',
         );
         provider.getSFTP().end();
@@ -222,8 +296,10 @@ export class ResourcedPool {
           throw Error('SFTP already closed.');
         }
 
-        extension.logger.appendLineToMessages(
-          '[connection] [task] Validating connection for "' + openConfiguration.remoteName + '"...',
+        logger.logMessage(
+          '[connection] [task] Validating connection for "' +
+            runtimeConfiguration.remoteName +
+            '"...',
         );
 
         await new Promise<void>((resolve, reject) => {
@@ -237,8 +313,10 @@ export class ResourcedPool {
           });
         });
 
-        extension.logger.appendLineToMessages(
-          '[connection] [task] Validated connection for "' + openConfiguration.remoteName + '"...',
+        logger.logMessage(
+          '[connection] [task] Validated connection for "' +
+            runtimeConfiguration.remoteName +
+            '"...',
         );
 
         provider.getSFTP();
@@ -256,13 +334,43 @@ export class ResourcedPool {
   }
 
   async close() {
-    this.terminated = true;
-    await this.passivePool.closeAsync(true);
-    await this.heavyPool.closeAsync(true);
+    this.closed = true;
+
+    let error1: any = null;
+    let error2: any = null;
+
+    this.logger.logMessage('Closing connection pool...');
+
+    try {
+      this.passivePool.close(true);
+    } catch (ex: any) {
+      this.logger.logError('Failed to close passive pool: ', ex);
+      error1 = ex;
+    }
+
+    try {
+      this.heavyPool.close(true);
+    } catch (ex: any) {
+      this.logger.logError('Failed to close heavy pool: ', ex);
+      error2 = ex;
+    }
+
+    this.logger.logMessage('Connection pool closed.');
+
+    this.heavyPoolChange.next();
+    this.heavyPoolChange.complete();
+    this.passivePoolChange.next();
+    this.passivePoolChange.complete();
+    this.poolChange.next();
+    this.poolChange.complete();
+
+    if (error1 !== null || error2 !== null) {
+      throw Error('Failed to close one or more pools.', { cause: [error1, error2] });
+    }
   }
 
   async getPool(type: PoolType) {
-    if (this.terminated) {
+    if (this.closed) {
       throw Error('Pool terminated.');
     }
     // We need await pool to finish...
@@ -274,15 +382,13 @@ export class ResourcedPool {
   async reconnect() {
     this.poolPromise = new Promise(async (resolve, reject) => {
       try {
-        this.extension.logger.appendLineToMessages('[pool] [task] Performing reconnection...');
-        this.terminated = true;
+        this.logger.logMessage('[pool] [task] Performing reconnection...');
         await this.passivePool.closeAsync(true);
         await this.heavyPool.closeAsync(true);
         await this.setupPool();
-        this.terminated = false;
         resolve();
       } catch (ex: any) {
-        this.extension.logger.appendErrorToMessages('reconnect', 'Failed to reconnect: ', ex);
+        this.logger.logError('Failed to reconnect: ', ex);
         reject(ex);
       }
     });
@@ -305,13 +411,11 @@ export class ResourcedPool {
     const passiveMaxQueue = passiveConfig.get('maxQueue', 1000000);
     const passiveIdleTimeoutMillis = passiveConfig.get('idleTimeoutMillis', 60000);
 
-    this.extension.logger.appendLineToMessages('[pool-config] heavy.max = ' + heavyMax);
-    this.extension.logger.appendLineToMessages('[pool-config] heavy.min = ' + heavyMin);
-    this.extension.logger.appendLineToMessages('[pool-config] heavy.minIdle = ' + heavyMinIdle);
-    this.extension.logger.appendLineToMessages('[pool-config] heavy.maxQueue = ' + heavyMaxQueue);
-    this.extension.logger.appendLineToMessages(
-      '[pool-config] heavy.idleTimeoutMillis = ' + heavyIdleTimeoutMillis,
-    );
+    this.logger.logMessage('[pool-config] heavy.max = ' + heavyMax);
+    this.logger.logMessage('[pool-config] heavy.min = ' + heavyMin);
+    this.logger.logMessage('[pool-config] heavy.minIdle = ' + heavyMinIdle);
+    this.logger.logMessage('[pool-config] heavy.maxQueue = ' + heavyMaxQueue);
+    this.logger.logMessage('[pool-config] heavy.idleTimeoutMillis = ' + heavyIdleTimeoutMillis);
 
     this.testSuiteHeavyPoolMax = heavyMax;
     this.testSuiteHeavyPoolMin = heavyMin;
@@ -319,15 +423,11 @@ export class ResourcedPool {
     this.testSuiteHeavyPoolMaxQueue = heavyMaxQueue;
     this.testSuiteHeavyPoolIdleTimeoutMillis = heavyIdleTimeoutMillis;
 
-    this.extension.logger.appendLineToMessages('[pool-config] passive.max = ' + passiveMax);
-    this.extension.logger.appendLineToMessages('[pool-config] passive.min = ' + passiveMin);
-    this.extension.logger.appendLineToMessages('[pool-config] passive.minIdle = ' + passiveMinIdle);
-    this.extension.logger.appendLineToMessages(
-      '[pool-config] passive.maxQueue = ' + passiveMaxQueue,
-    );
-    this.extension.logger.appendLineToMessages(
-      '[pool-config] passive.idleTimeoutMillis = ' + passiveIdleTimeoutMillis,
-    );
+    this.logger.logMessage('[pool-config] passive.max = ' + passiveMax);
+    this.logger.logMessage('[pool-config] passive.min = ' + passiveMin);
+    this.logger.logMessage('[pool-config] passive.minIdle = ' + passiveMinIdle);
+    this.logger.logMessage('[pool-config] passive.maxQueue = ' + passiveMaxQueue);
+    this.logger.logMessage('[pool-config] passive.idleTimeoutMillis = ' + passiveIdleTimeoutMillis);
 
     this.testSuitePassivePoolMax = passiveMax;
     this.testSuitePassivePoolMin = passiveMin;
@@ -335,15 +435,9 @@ export class ResourcedPool {
     this.testSuitePassivePoolMaxQueue = passiveMaxQueue;
     this.testSuitePassivePoolIdleTimeoutMillis = passiveIdleTimeoutMillis;
 
-    this.extension.logger.appendLineToMessages(
-      '[pool-config] targetHost = ' + this.configuration.host,
-    );
-    this.extension.logger.appendLineToMessages(
-      '[pool-config] targetPort = ' + this.configuration.port,
-    );
-    this.extension.logger.appendLineToMessages(
-      '[pool-config] targetUser = ' + this.configuration.username,
-    );
+    this.logger.logMessage('[pool-config] targetHost = ' + this.configuration.host);
+    this.logger.logMessage('[pool-config] targetPort = ' + this.configuration.port);
+    this.logger.logMessage('[pool-config] targetUser = ' + this.configuration.username);
 
     if (!testSuite) {
       this.heavyPool = new Pool(this.heavyFactory, {
@@ -354,6 +448,22 @@ export class ResourcedPool {
         idleTimeoutMillis: heavyIdleTimeoutMillis,
       });
 
+      this.heavyPool.on('create', () => {
+        this.heavyPoolChange.next();
+      });
+      this.heavyPool.on('create-error', () => {
+        this.heavyPoolChange.next();
+      });
+      this.heavyPool.on('destroy', () => {
+        this.heavyPoolChange.next();
+      });
+      this.heavyPool.on('destroy-error', () => {
+        this.heavyPoolChange.next();
+      });
+      this.heavyPool.on('close', () => {
+        this.heavyPoolChange.next();
+      });
+
       this.passivePool = new Pool(this.passiveFactory, {
         max: passiveMax, // maximum size of the pool
         min: passiveMin, // minimum size of the pool
@@ -361,25 +471,53 @@ export class ResourcedPool {
         maxQueue: passiveMaxQueue, // Unlimited pool...
         idleTimeoutMillis: passiveIdleTimeoutMillis,
       });
+
+      this.passivePool.on('create', () => {
+        this.passivePoolChange.next();
+      });
+      this.passivePool.on('create-error', () => {
+        this.passivePoolChange.next();
+      });
+      this.passivePool.on('destroy', () => {
+        this.passivePoolChange.next();
+      });
+      this.passivePool.on('destroy-error', () => {
+        this.passivePoolChange.next();
+      });
+      this.passivePool.on('close', () => {
+        this.passivePoolChange.next();
+      });
+
+      this.heavyPoolChange.subscribe(() => {
+        this.poolChange.next();
+      });
+      this.passivePoolChange.subscribe(() => {
+        this.poolChange.next();
+      });
     } else {
       console.info('Skip pool creation due test suite.');
     }
+  }
+
+  getTotalConnections() {
+    return this.heavyPool.size + this.passivePool.size;
   }
 }
 
 export type PoolType = 'passive' | 'heavy';
 
-export class ConnectionProvider {
+export class SFTPClientHandler {
   private client: Client;
   private sftp: SFTPWrapper;
   type: PoolType;
-  status: ConnectionStatus = 'OPENING';
+  status: SFTPClientStatus;
   lastValidation: number = Date.now();
 
-  constructor(client: Client, sftp: SFTPWrapper, type: PoolType) {
+  constructor(client: Client, sftp: SFTPWrapper, type: PoolType, status: SFTPClientStatus) {
     this.client = client;
     this.sftp = sftp;
     this.type = type;
+    this.status = status;
   }
 
   getSFTP() {
@@ -390,9 +528,9 @@ export class ConnectionProvider {
   }
 
   requiresValidation() {
-    // More than 60s, then should ve validated...
+    // More than 60s, then should be validated...
     return Date.now() - this.lastValidation >= 60_000;
   }
 }
 
-export type ConnectionStatus = 'OPEN' | 'OPENING' | 'CLOSED';
+export type SFTPClientStatus = 'OPEN' | 'CLOSED';

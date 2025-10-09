@@ -1,10 +1,9 @@
 import { SFTPFileSystem } from '../sftp/sftp-file-system.js';
-import { QuickPickItemWithValue } from '../models/quick-pick.model.js';
 import * as vscode from 'vscode';
 import { Configuration } from './configuration.js';
-import { Logger } from './logger.js';
+import { GlobalLogger } from './logger.js';
 import { AddRemoteCommand } from '../commands/add-remote.command.js';
-import { ConnectionManager } from '../sftp/connection-manager.js';
+import { SFTPConnectionManager } from '../sftp/connection-manager.js';
 import { FileDecorationManager as SFTPFileDecoration } from '../sftp/file-decoration-manager.js';
 import { EditRemoteCommand } from '../commands/edit-remote.command.js';
 import { RemoveRemoteCommand } from '../commands/remove-remote.command.js';
@@ -20,16 +19,19 @@ import { BulkFileUploadCommand } from '../commands/bulk-file-upload.command.js';
 import { DownloadRemoteFileCommand } from '../commands/download-remote-file.command.js';
 import { UploadLocalFileCommand } from '../commands/upload-local-file.command.js';
 import { RefreshDirectoryCommand } from '../commands/refresh-directory.command.js';
+import { ConnectionsView } from '../views/connections.view.js';
+import { DisconnectCommand } from '../commands/disconnect.command.js';
 
 export class SFTPExtension {
-  logger!: Logger;
+  static instance?: SFTPExtension;
+
+  logger!: GlobalLogger;
   configuration!: Configuration;
-  connectionManager!: ConnectionManager;
+  connectionManager!: SFTPConnectionManager;
   sftpFileSystem!: SFTPFileSystem;
   sftpFileDecoration!: SFTPFileDecoration;
 
   vscodeStatusBarItem!: vscode.StatusBarItem;
-  vscodeRemoteConnectQuickPick?: vscode.QuickPick<QuickPickItemWithValue> = undefined;
 
   constructor(public context: vscode.ExtensionContext) {}
 
@@ -37,9 +39,10 @@ export class SFTPExtension {
    * Function for extension activation.
    */
   async activate() {
+    SFTPExtension.instance = this;
     this.configuration = new Configuration();
-    this.logger = new Logger();
-    this.connectionManager = new ConnectionManager(this);
+    this.logger = new GlobalLogger();
+    this.connectionManager = new SFTPConnectionManager(this);
     this.sftpFileDecoration = new SFTPFileDecoration();
 
     console.log('Extension activated');
@@ -47,6 +50,7 @@ export class SFTPExtension {
 
     this.registerSFTPFileSystem();
     this.createStatusBarItem();
+    this.registerViews();
     this.registerCommands();
 
     this.context.subscriptions.push(
@@ -55,6 +59,7 @@ export class SFTPExtension {
   }
 
   async deactivate() {
+    SFTPExtension.instance = undefined;
     console.log('Extension deactivated');
     await this.connectionManager.destroyAll();
 
@@ -104,5 +109,10 @@ export class SFTPExtension {
     new DownloadRemoteFileCommand(this, 'sftpfs.downloadRemoteFile').register();
     new UploadLocalFileCommand(this, 'sftpfs.uploadLocalFile').register();
     new RefreshDirectoryCommand(this, 'sftpfs.refreshDirectory').register();
+    new DisconnectCommand(this, 'sftpfs.disconnectRemote').register();
+  }
+
+  registerViews() {
+    new ConnectionsView(this).register();
   }
 }

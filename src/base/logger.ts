@@ -1,7 +1,8 @@
 import { OutputChannel } from 'vscode';
 import * as vscode from 'vscode';
+import { SFTPExtension } from './vscode-extension';
 
-export class Logger {
+export class GlobalLogger {
   messagesChannel!: OutputChannel;
   messagesErrChannel!: OutputChannel;
   initialized = false;
@@ -23,24 +24,38 @@ export class Logger {
     );
   }
 
-  appendLineToMessages(content: string) {
-    console.info(content);
-    this.messagesChannel.appendLine(content);
+  appendLineToMessages(prefix: string, content: string) {
+    const timeFormat = new Date().toISOString().replace('T', ' ').replace('Z', '');
+    const line = timeFormat + ' [' + prefix + '] ' + content;
+    console.info(line);
+    this.messagesChannel.appendLine(line);
   }
 
   appendErrorToMessages(prefix: string, usefulMessage: string, error: Error) {
-    console.error(
-      '[' +
-        prefix +
-        '] An error occurred: ' +
-        usefulMessage +
-        ': (' +
-        error.message +
-        '): ' +
-        error.stack,
-    );
-    this.messagesErrChannel.appendLine(
-      '[' + prefix + '] ' + usefulMessage + ': (' + error.message + '): ' + error.stack,
-    );
+    const timeFormat = new Date().toISOString().replace('T', ' ').replace('Z', '');
+    const line =
+      timeFormat +
+      ' [' +
+      prefix +
+      '] ' +
+      usefulMessage +
+      ': (' +
+      error.message +
+      '): ' +
+      error.stack;
+    console.error(line);
+    this.messagesErrChannel.appendLine(line);
+  }
+}
+
+export class ScopedLogger {
+  constructor(public prefix: string) {}
+
+  logMessage(content: string) {
+    SFTPExtension.instance?.logger.appendLineToMessages(this.prefix, content);
+  }
+
+  logError(usefulMessage: string, error: Error) {
+    SFTPExtension.instance?.logger.appendErrorToMessages(this.prefix, usefulMessage, error);
   }
 }

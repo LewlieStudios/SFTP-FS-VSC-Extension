@@ -2,8 +2,8 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as mocha from 'mocha';
 import { Configuration } from '../../base/configuration';
-import { Logger } from '../../base/logger';
-import { ConnectionManager } from '../../sftp/connection-manager';
+import { GlobalLogger } from '../../base/logger';
+import { SFTPConnectionManager } from '../../sftp/connection-manager';
 import { SFTPExtension } from '../../base/vscode-extension';
 
 mocha.suite('Configuration Test Suite', () => {
@@ -45,8 +45,8 @@ mocha.suite('Configuration Test Suite', () => {
   } as any;
   const extension = new SFTPExtension(mockExtensionContext);
   const configuration = new Configuration();
-  const logger = new Logger();
-  const connectionManager = new ConnectionManager(extension);
+  const logger = new GlobalLogger();
+  const connectionManager = new SFTPConnectionManager(extension);
   extension.logger = logger;
 
   mocha.before(async () => {
@@ -198,7 +198,7 @@ mocha.suite('Configuration Test Suite', () => {
   });
 
   mocha.test('Test Pool Configuration Load', async () => {
-    await connectionManager.createPool(
+    await connectionManager.createResourceManager(
       {
         configuration: {
           host: 'dummy',
@@ -211,7 +211,7 @@ mocha.suite('Configuration Test Suite', () => {
       true,
     );
 
-    const pool = connectionManager.get('dummy-remote')!;
+    const pool = connectionManager.getResourceManager('dummy-remote')!;
     assert.strictEqual(pool.testSuiteHeavyPoolMax, 20, 'Heavy Pool - option "max" evaluation.');
     assert.strictEqual(pool.testSuiteHeavyPoolMin, 3, 'Heavy Pool - option "min" evaluation.');
     assert.strictEqual(
